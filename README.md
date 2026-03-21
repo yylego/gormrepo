@@ -385,6 +385,26 @@ err := repo.With(ctx, db).Clause(func(cls *AccountColumns) clause.Expression {
 | `Clauses` | `clauses ...clause.Expression`    | `*GormRepo` | Add clauses and return new repo      |
 | `Clause`  | `func(cls CLS) clause.Expression` | `*GormRepo` | Build clause with column definitions |
 
+#### 10. Unscoped (Permanent Deletion / Soft-Delete Bypass)
+
+Use `Unscoped()` to bypass soft-delete scope. Returns a new repo instance via method chaining:
+
+```go
+// Permanent deletion — bypasses soft delete, removes from database
+err := repo.With(ctx, db).Unscoped().DeleteW(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+    return db.Where(cls.Username.Eq(username))
+})
+
+// Read soft-deleted records
+accounts, err := repo.With(ctx, db).Unscoped().Find(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+    return db.Where(cls.Username.Eq(username))
+})
+```
+
+| Method     | Parameters | Returns     | Description                            |
+| ---------- | ---------- | ----------- | -------------------------------------- |
+| `Unscoped` | (none)     | `*GormRepo` | Disable soft-delete scope via chaining |
+
 ---
 
 ## 📝 Complete Examples

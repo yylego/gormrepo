@@ -374,6 +374,47 @@ func TestGormWrap_DeleteW(t *testing.T) {
 	})
 }
 
+func TestGormWrap_Unscoped(t *testing.T) {
+	tests.NewDBRun(t, func(db *gorm.DB) {
+		must.Done(db.AutoMigrate(&Account{}))
+
+		wrap := gormrepo.NewGormWrap(gormrepo.Use(db, &Account{}))
+
+		username := uuid.New().String()
+		account := newAccount(username)
+		require.NoError(t, wrap.Create(account).Error)
+
+		// soft delete
+		require.NoError(t, wrap.DeleteW(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+			return db.Where(cls.Username.Eq(username))
+		}).Error)
+
+		// normal scope: not visible
+		var count int64
+		require.NoError(t, wrap.Mold().Where(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+			return db.Where(cls.Username.Eq(username))
+		}).Count(&count).Error)
+		require.Equal(t, int64(0), count)
+
+		// unscoped: still visible (soft-deleted)
+		require.NoError(t, wrap.Unscoped().Mold().Where(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+			return db.Where(cls.Username.Eq(username))
+		}).Count(&count).Error)
+		require.Equal(t, int64(1), count)
+
+		// unscoped hard delete
+		require.NoError(t, wrap.Unscoped().DeleteW(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+			return db.Where(cls.Username.Eq(username))
+		}).Error)
+
+		// unscoped: now gone
+		require.NoError(t, wrap.Unscoped().Mold().Where(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+			return db.Where(cls.Username.Eq(username))
+		}).Count(&count).Error)
+		require.Equal(t, int64(0), count)
+	})
+}
+
 func TestGormWrap_DeleteM(t *testing.T) {
 	tests.NewDBRun(t, func(db *gorm.DB) {
 		must.Done(db.AutoMigrate(&Account{}))

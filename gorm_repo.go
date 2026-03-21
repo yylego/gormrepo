@@ -344,6 +344,15 @@ func (repo *GormRepo[MOD, CLS]) DeleteM(one *MOD, where func(db *gorm.DB, cls CL
 	return nil
 }
 
+// Unscoped disables soft-delete scope and returns a new GormRepo
+// Enables permanent deletion via method chaining: repo.Unscoped().DeleteW(...)
+//
+// Unscoped 禁用软删除作用域并返回新的 GormRepo
+// 通过方法链实现永久删除：repo.Unscoped().DeleteW(...)
+func (repo *GormRepo[MOD, CLS]) Unscoped() *GormRepo[MOD, CLS] {
+	return NewGormRepo[MOD, CLS](repo.db.Unscoped(), (*MOD)(nil), repo.cls)
+}
+
 // Clauses adds clauses to the database and returns a new GormRepo
 // Enables upsert and other clause-based operations via method chaining
 // Example: repo.Clauses(clause.OnConflict{...}).Create(&record)

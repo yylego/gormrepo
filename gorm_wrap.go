@@ -187,6 +187,15 @@ func (wrap *GormWrap[MOD, CLS]) DeleteM(one *MOD, where func(db *gorm.DB, cls CL
 	return where(wrap.db, wrap.cls).Delete(one)
 }
 
+// Unscoped disables soft-delete scope and returns a new GormWrap
+// Enables permanent deletion via method chaining: wrap.Unscoped().DeleteW(...)
+//
+// Unscoped 禁用软删除作用域并返回新的 GormWrap
+// 通过方法链实现永久删除：wrap.Unscoped().DeleteW(...)
+func (wrap *GormWrap[MOD, CLS]) Unscoped() *GormWrap[MOD, CLS] {
+	return NewGormWrap[MOD, CLS](wrap.db.Unscoped(), (*MOD)(nil), wrap.cls)
+}
+
 // Clauses adds clauses to the database and returns a new GormWrap
 // Enables upsert and other clause-based operations via method chaining
 // Example: wrap.Clauses(clause.OnConflict{...}).Create(&record)

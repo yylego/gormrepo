@@ -385,6 +385,26 @@ err := repo.With(ctx, db).Clause(func(cls *AccountColumns) clause.Expression {
 | `Clauses` | `clauses ...clause.Expression`    | `*GormRepo` | 添加子句并返回新 repo |
 | `Clause`  | `func(cls CLS) clause.Expression` | `*GormRepo` | 使用列定义构建子句    |
 
+#### 10. Unscoped（永久删除 / 绕过软删除）
+
+使用 `Unscoped()` 绕过软删除作用域，通过方法链返回新的 repo 实例：
+
+```go
+// 永久删除——绕过软删除，从数据库中彻底移除
+err := repo.With(ctx, db).Unscoped().DeleteW(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+    return db.Where(cls.Username.Eq(username))
+})
+
+// 查询已软删除的记录
+accounts, err := repo.With(ctx, db).Unscoped().Find(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+    return db.Where(cls.Username.Eq(username))
+})
+```
+
+| 方法       | 参数 | 返回值      | 描述                         |
+| ---------- | ---- | ----------- | ---------------------------- |
+| `Unscoped` | (无) | `*GormRepo` | 通过链式调用禁用软删除作用域 |
+
 ---
 
 ## 📝 完整示例
