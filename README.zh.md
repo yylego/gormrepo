@@ -113,6 +113,16 @@ accounts, err := repo.With(ctx, db).Find(func(db *gorm.DB, cls *AccountColumns) 
     return db.Where(cls.Age.Gte(18))
 })
 
+// gormrepo - FindO（带排序）
+accounts, err := repo.With(ctx, db).FindO(
+    func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+        return db.Where(cls.Age.Gte(18))
+    },
+    func(cls *AccountColumns) gormcnm.OrderByBottle {
+        return cls.ID.OrderByBottle("DESC")
+    },
+)
+
 // gormrepo - FindPage
 accounts, err := repo.With(ctx, db).FindPage(
     func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
@@ -196,6 +206,7 @@ accounts, err := repo.With(ctx, db).Find(func(db *gorm.DB, cls *AccountColumns) 
 | `First`            | `where func(db *gorm.DB, cls CLS) *gorm.DB` | `*MOD, error`            | 查询第一个匹配记录       |
 | `FirstE`           | `where func(db *gorm.DB, cls CLS) *gorm.DB` | `*MOD, *ErrorOrNotExist` | 查询首条或返回不存在标识 |
 | `Find`             | `where func(db *gorm.DB, cls CLS) *gorm.DB` | `[]*MOD, error`          | 查询所有匹配记录         |
+| `FindO`            | `where, ordering`                           | `[]*MOD, error`          | 带排序查询所有匹配记录   |
 | `FindPage`         | `where, ordering, pagination`               | `[]*MOD, error`          | 分页查询                 |
 | `FindPageAndCount` | `where, ordering, pagination`               | `[]*MOD, int64, error`   | 分页查询带总数           |
 | `Count`            | `where func(db *gorm.DB, cls CLS) *gorm.DB` | `int64, error`           | 统计匹配记录数           |

@@ -113,6 +113,16 @@ accounts, err := repo.With(ctx, db).Find(func(db *gorm.DB, cls *AccountColumns) 
     return db.Where(cls.Age.Gte(18))
 })
 
+// gormrepo - FindO (with ordering)
+accounts, err := repo.With(ctx, db).FindO(
+    func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+        return db.Where(cls.Age.Gte(18))
+    },
+    func(cls *AccountColumns) gormcnm.OrderByBottle {
+        return cls.ID.OrderByBottle("DESC")
+    },
+)
+
 // gormrepo - FindPage
 accounts, err := repo.With(ctx, db).FindPage(
     func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
@@ -196,6 +206,7 @@ accounts, err := repo.With(ctx, db).Find(func(db *gorm.DB, cls *AccountColumns) 
 | `First`            | `where func(db *gorm.DB, cls CLS) *gorm.DB` | `*MOD, error`            | Find first matching record           |
 | `FirstE`           | `where func(db *gorm.DB, cls CLS) *gorm.DB` | `*MOD, *ErrorOrNotExist` | Find first with not-exist indication |
 | `Find`             | `where func(db *gorm.DB, cls CLS) *gorm.DB` | `[]*MOD, error`          | Find each matching records           |
+| `FindO`            | `where, ordering`                           | `[]*MOD, error`          | Find matching records with ordering  |
 | `FindPage`         | `where, ordering, pagination`               | `[]*MOD, error`          | Paginated search                     |
 | `FindPageAndCount` | `where, ordering, pagination`               | `[]*MOD, int64, error`   | Paginated search with record count   |
 | `Count`            | `where func(db *gorm.DB, cls CLS) *gorm.DB` | `int64, error`           | Count matching records               |

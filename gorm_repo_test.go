@@ -181,6 +181,27 @@ func TestGormRepo_Find(t *testing.T) {
 	t.Log(neatjsons.S(accounts))
 }
 
+// TestGormRepo_FindO tests the FindO method with where condition and ordering
+// TestGormRepo_FindO 测试带 where 条件和排序的 FindO 方法
+func TestGormRepo_FindO(t *testing.T) {
+	db := tests.NewMemDB(t)
+	defer rese.F0(rese.P1(db.DB()).Close)
+	setupDemoData(t, db)
+
+	repo := gormrepo.NewGormRepo(gormrepo.Use(db, &Account{}))
+
+	accounts, err := repo.FindO(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+		return db.Where(cls.Username.Like("demo-%-username"))
+	}, func(cls *AccountColumns) gormcnm.OrderByBottle {
+		return cls.Username.OrderByBottle("desc")
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, accounts)
+	require.Equal(t, "demo-2-username", accounts[0].Username)
+	require.Equal(t, "demo-1-username", accounts[len(accounts)-1].Username)
+	t.Log(neatjsons.S(accounts))
+}
+
 // TestGormRepo_FindN tests the FindN method to retrieve limited records
 // TestGormRepo_FindN 测试 FindN 方法检索有限数量的记录
 func TestGormRepo_FindN(t *testing.T) {

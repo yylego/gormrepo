@@ -91,6 +91,21 @@ func (repo *GormRepo[MOD, CLS]) Find(where func(db *gorm.DB, cls CLS) *gorm.DB) 
 	return results, nil
 }
 
+// FindO retrieves records matching the where condition with ordering
+// O = Ordering, returns all matching records in specified sequence
+//
+// FindO 检索符合 where 条件的记录并按指定顺序排序
+// O = Ordering，返回所有匹配记录并按指定顺序排列
+func (repo *GormRepo[MOD, CLS]) FindO(where func(db *gorm.DB, cls CLS) *gorm.DB, ordering func(cls CLS) gormcnm.OrderByBottle) ([]*MOD, error) {
+	var results []*MOD
+	db := where(repo.db, repo.cls)
+	db = db.Order(string(ordering(repo.cls)))
+	if err := db.Find(&results).Error; err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
 // FindN retrieves records matching the where condition with size limit
 // Returns up to size records
 //
