@@ -66,8 +66,8 @@ func TestBasicPagination(t *testing.T) {
 		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
 			return db.Where(cls.Status.Eq("published"))
 		},
-		func(cls *models.PostColumns) gormcnm.OrderByBottle {
-			return cls.ID.OrderByBottle("asc")
+		func(cls *models.PostColumns) gormcnm.Ordering {
+			return cls.ID.Ob("asc")
 		},
 		&gormrepo.Pagination{Offset: 0, Limit: 5},
 	)
@@ -82,8 +82,8 @@ func TestBasicPagination(t *testing.T) {
 		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
 			return db.Where(cls.Status.Eq("published"))
 		},
-		func(cls *models.PostColumns) gormcnm.OrderByBottle {
-			return cls.ID.OrderByBottle("asc")
+		func(cls *models.PostColumns) gormcnm.Ordering {
+			return cls.ID.Ob("asc")
 		},
 		&gormrepo.Pagination{Offset: 5, Limit: 5},
 	)
@@ -98,8 +98,8 @@ func TestBasicPagination(t *testing.T) {
 		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
 			return db.Where(cls.Status.Eq("published"))
 		},
-		func(cls *models.PostColumns) gormcnm.OrderByBottle {
-			return cls.ID.OrderByBottle("asc")
+		func(cls *models.PostColumns) gormcnm.Ordering {
+			return cls.ID.Ob("asc")
 		},
 		&gormrepo.Pagination{Offset: 15, Limit: 5},
 	)
@@ -117,8 +117,8 @@ func TestPaginationWithCount(t *testing.T) {
 		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
 			return db.Where(cls.Status.Eq("published"))
 		},
-		func(cls *models.PostColumns) gormcnm.OrderByBottle {
-			return cls.ID.OrderByBottle("desc")
+		func(cls *models.PostColumns) gormcnm.Ordering {
+			return cls.ID.Ob("desc")
 		},
 		&gormrepo.Pagination{Offset: 0, Limit: 10},
 	)
@@ -157,8 +157,8 @@ func TestFilteredPagination(t *testing.T) {
 		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
 			return db.Where(cls.Category.Eq("tech")).Where(cls.Status.Eq("published"))
 		},
-		func(cls *models.PostColumns) gormcnm.OrderByBottle {
-			return cls.ViewCount.OrderByBottle("desc")
+		func(cls *models.PostColumns) gormcnm.Ordering {
+			return cls.ViewCount.Ob("desc")
 		},
 		&gormrepo.Pagination{Offset: 0, Limit: 3},
 	)
@@ -171,8 +171,8 @@ func TestFilteredPagination(t *testing.T) {
 		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
 			return db.Where(cls.AuthorID.Eq(1)).Where(cls.Status.Eq("published"))
 		},
-		func(cls *models.PostColumns) gormcnm.OrderByBottle {
-			return cls.LikeCount.OrderByBottle("desc")
+		func(cls *models.PostColumns) gormcnm.Ordering {
+			return cls.LikeCount.Ob("desc")
 		},
 		&gormrepo.Pagination{Offset: 0, Limit: 5},
 	)
@@ -185,8 +185,8 @@ func TestFilteredPagination(t *testing.T) {
 		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
 			return db.Where(cls.ViewCount.Gt(100)).Where(cls.Status.Eq("published"))
 		},
-		func(cls *models.PostColumns) gormcnm.OrderByBottle {
-			return cls.ViewCount.OrderByBottle("desc")
+		func(cls *models.PostColumns) gormcnm.Ordering {
+			return cls.ViewCount.Ob("desc")
 		},
 		&gormrepo.Pagination{Offset: 0, Limit: 5},
 	)
@@ -209,8 +209,8 @@ func TestMultipleSortPagination(t *testing.T) {
 		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
 			return db.Where(cls.Status.Eq("published"))
 		},
-		func(cls *models.PostColumns) gormcnm.OrderByBottle {
-			return cls.Category.OrderByBottle("asc").Ob(cls.ViewCount.Ob("desc"))
+		func(cls *models.PostColumns) gormcnm.Ordering {
+			return cls.Category.Ob("asc").Ob(cls.ViewCount.Ob("desc"))
 		},
 		&gormrepo.Pagination{Offset: 0, Limit: 8},
 	)
@@ -228,8 +228,8 @@ func TestMultipleSortPagination(t *testing.T) {
 		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
 			return db.Where(cls.Status.Eq("published"))
 		},
-		func(cls *models.PostColumns) gormcnm.OrderByBottle {
-			return cls.LikeCount.OrderByBottle("desc").Ob(cls.ID.Ob("asc"))
+		func(cls *models.PostColumns) gormcnm.Ordering {
+			return cls.LikeCount.Ob("desc").Ob(cls.ID.Ob("asc"))
 		},
 		&gormrepo.Pagination{Offset: 0, Limit: 5},
 	)
@@ -260,8 +260,8 @@ func TestPaginationEdgeCases(t *testing.T) {
 		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
 			return db.Where(cls.Status.Eq("published"))
 		},
-		func(cls *models.PostColumns) gormcnm.OrderByBottle {
-			return cls.ID.OrderByBottle("asc")
+		func(cls *models.PostColumns) gormcnm.Ordering {
+			return cls.ID.Ob("asc")
 		},
 		&gormrepo.Pagination{Offset: 100, Limit: 10}, // 超出数据范围
 	)
@@ -275,8 +275,8 @@ func TestPaginationEdgeCases(t *testing.T) {
 		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
 			return db.Where(cls.Status.Eq("published"))
 		},
-		func(cls *models.PostColumns) gormcnm.OrderByBottle {
-			return cls.ID.OrderByBottle("asc")
+		func(cls *models.PostColumns) gormcnm.Ordering {
+			return cls.ID.Ob("asc")
 		},
 		&gormrepo.Pagination{Offset: 0, Limit: 100}, // 大于实际数据量
 	)
@@ -289,8 +289,8 @@ func TestPaginationEdgeCases(t *testing.T) {
 		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
 			return db.Where(cls.Status.Eq("published"))
 		},
-		func(cls *models.PostColumns) gormcnm.OrderByBottle {
-			return cls.ID.OrderByBottle("asc")
+		func(cls *models.PostColumns) gormcnm.Ordering {
+			return cls.ID.Ob("asc")
 		},
 		&gormrepo.Pagination{Offset: 0, Limit: 0},
 	)
@@ -304,8 +304,8 @@ func TestPaginationEdgeCases(t *testing.T) {
 		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
 			return db.Where(cls.Category.Eq("nonexistent"))
 		},
-		func(cls *models.PostColumns) gormcnm.OrderByBottle {
-			return cls.ID.OrderByBottle("asc")
+		func(cls *models.PostColumns) gormcnm.Ordering {
+			return cls.ID.Ob("asc")
 		},
 		&gormrepo.Pagination{Offset: 0, Limit: 10},
 	)
@@ -324,8 +324,8 @@ func TestPaginationPerformance(t *testing.T) {
 		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
 			return db.Where(cls.Status.Eq("published"))
 		},
-		func(cls *models.PostColumns) gormcnm.OrderByBottle {
-			return cls.ID.OrderByBottle("desc")
+		func(cls *models.PostColumns) gormcnm.Ordering {
+			return cls.ID.Ob("desc")
 		},
 		&gormrepo.Pagination{Offset: 0, Limit: 5},
 	)
@@ -336,7 +336,7 @@ func TestPaginationPerformance(t *testing.T) {
 	// 2. 限制结果数量查询
 	limitedPosts, err := repo.FindN(
 		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
-			return db.Where(cls.Status.Eq("published")).Order(cls.ViewCount.Ob("desc").Ox())
+			return db.Where(cls.Status.Eq("published")).Order(cls.ViewCount.Desc())
 		},
 		3, // 限制3条记录
 	)
@@ -355,7 +355,7 @@ func TestPaginationPerformance(t *testing.T) {
 			return db.Where(cls.Category.Eq("tech"))
 		},
 		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
-			return db.Order(cls.LikeCount.Ob("desc").Ox()).Limit(3).Offset(0)
+			return db.Order(cls.LikeCount.Desc()).Limit(3).Offset(0)
 		},
 	)
 	require.NoError(t, err)

@@ -192,8 +192,8 @@ func TestGormRepo_FindO(t *testing.T) {
 
 	accounts, err := repo.FindO(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
 		return db.Where(cls.Username.Like("demo-%-username"))
-	}, func(cls *AccountColumns) gormcnm.OrderByBottle {
-		return cls.Username.OrderByBottle("desc")
+	}, func(cls *AccountColumns) gormcnm.Ordering {
+		return cls.Username.Ob("desc")
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, accounts)
@@ -231,7 +231,7 @@ func TestGormRepo_FindC(t *testing.T) {
 	accounts, count, err := repo.FindC(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
 		return db.Where(cls.Username.In([]string{"demo-1-username", "demo-2-username"}))
 	}, func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
-		return db.Offset(1).Limit(2).Order(cls.Username.OrderByBottle("asc").Orders())
+		return db.Offset(1).Limit(2).Order(cls.Username.Asc())
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, accounts)
@@ -253,8 +253,8 @@ func TestGormRepo_FindPageAndCount(t *testing.T) {
 
 	accounts, count, err := repo.FindPageAndCount(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
 		return db.Where(cls.Username.In([]string{"demo-1-username", "demo-2-username"}))
-	}, func(cls *AccountColumns) gormcnm.OrderByBottle {
-		return cls.Username.OrderByBottle("asc")
+	}, func(cls *AccountColumns) gormcnm.Ordering {
+		return cls.Username.Ob("asc")
 	}, &gormrepo.Pagination{
 		Offset: 1,
 		Limit:  2,
@@ -277,8 +277,8 @@ func TestGormRepo_FindPage(t *testing.T) {
 
 	accounts, err := repo.FindPage(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
 		return db.Where(cls.Username.In([]string{"demo-1-username", "demo-2-username"}))
-	}, func(cls *AccountColumns) gormcnm.OrderByBottle {
-		return cls.Username.OrderByBottle("desc").Ob(cls.Nickname.Ob("asc"))
+	}, func(cls *AccountColumns) gormcnm.Ordering {
+		return cls.Username.Ob("desc").Ob(cls.Nickname.Ob("asc"))
 	}, &gormrepo.Pagination{
 		Offset: 0,
 		Limit:  2,
@@ -293,6 +293,33 @@ func TestGormRepo_FindPage(t *testing.T) {
 	t.Log(neatjsons.S(accounts))
 }
 
+// TestGormRepo_FindPageUnlimited checks Limit -1, which GORM treats as no limit
+// TestGormRepo_FindPageUnlimited 验证 Limit 为 -1 时（GORM 视为不限条数）能正常返回全部记录
+func TestGormRepo_FindPageUnlimited(t *testing.T) {
+	db := tests.NewMemDB(t)
+	defer rese.F0(rese.P1(db.DB()).Close)
+	setupDemoData(t, db)
+
+	repo := gormrepo.NewGormRepo(gormrepo.Use(db, &Account{}))
+
+	accounts, err := repo.FindPage(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+		return db.Where(cls.Username.In([]string{"demo-1-username", "demo-2-username"}))
+	}, func(cls *AccountColumns) gormcnm.Ordering {
+		return cls.Username.Ob("asc")
+	}, &gormrepo.Pagination{
+		Offset: 0,
+		Limit:  -1,
+	})
+	require.NoError(t, err)
+	require.Len(t, accounts, 2)
+
+	accounts, err = repo.FindN(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+		return db.Where(cls.Username.In([]string{"demo-1-username", "demo-2-username"}))
+	}, -1)
+	require.NoError(t, err)
+	require.Len(t, accounts, 2)
+}
+
 func TestGormRepo_Count(t *testing.T) {
 	db := tests.NewMemDB(t)
 	defer rese.F0(rese.P1(db.DB()).Close)
@@ -305,6 +332,55 @@ func TestGormRepo_Count(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, int64(2), count)
+}
+
+func TestGormRepo_Pluck(t *testing.T) {
+	db := tests.NewMemDB(t)
+	defer rese.F0(rese.P1(db.DB()).Close)
+	setupDemoData(t, db)
+
+	repo := gormrepo.NewGormRepo(gormrepo.Use(db, &Account{}))
+
+	usernames, err := repo.Pluck(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+		return db.Where(cls.Username.In([]string{"demo-1-username", "demo-2-username"})).Order(cls.Username.Asc())
+	}, func(cls *AccountColumns) gormcnm.ColumnName[string] {
+		return cls.Username
+	})
+	require.NoError(t, err)
+	require.Equal(t, []string{"demo-1-username", "demo-2-username"}, usernames)
+
+	ids, err := repo.Pluck(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+		return db.Where(cls.Username.Eq("demo-2-username"))
+	}, func(cls *AccountColumns) gormcnm.ColumnName[uint] {
+		return cls.ID
+	})
+	require.NoError(t, err)
+	require.Len(t, ids, 1)
+	require.NotZero(t, ids[0])
+}
+
+func TestGormRepo_Scan(t *testing.T) {
+	db := tests.NewMemDB(t)
+	defer rese.F0(rese.P1(db.DB()).Close)
+	setupDemoData(t, db)
+
+	repo := gormrepo.NewGormRepo(gormrepo.Use(db, &Account{}))
+
+	type accountBrief struct {
+		Username string
+		Nickname string
+	}
+
+	briefs, err := repo.Scan[accountBrief](func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+		return db.Select(cls.Username.Name(), cls.Nickname.Name()).
+			Where(cls.Username.In([]string{"demo-1-username", "demo-2-username"})).
+			Order(cls.Username.Desc())
+	})
+	require.NoError(t, err)
+	require.Equal(t, []accountBrief{
+		{Username: "demo-2-username", Nickname: "demo-2-nickname"},
+		{Username: "demo-1-username", Nickname: "demo-1-nickname"},
+	}, briefs)
 }
 
 func TestGormRepo_Update(t *testing.T) {

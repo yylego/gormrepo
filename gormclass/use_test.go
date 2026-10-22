@@ -170,13 +170,13 @@ func TestOnePointerOutput(t *testing.T) {
 	{
 		var account Account
 		one := gormclass.One(&account)
-		require.Equal(t, reflect.Ptr, reflect.TypeOf(one).Kind())
+		require.Equal(t, reflect.Pointer, reflect.TypeOf(one).Kind())
 	}
 
 	{
 		example := Example{}
 		one := gormclass.One(&example)
-		require.Equal(t, reflect.Ptr, reflect.TypeOf(one).Kind())
+		require.Equal(t, reflect.Pointer, reflect.TypeOf(one).Kind())
 	}
 }
 

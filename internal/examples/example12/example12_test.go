@@ -73,7 +73,7 @@ func TestBasicAggregation(t *testing.T) {
 			common.CountStmt("record_count"),
 		)).
 		Group(cls.Category.Name()).
-		Order(cls.TotalAmount.OrderByBottle("desc").Ox()).
+		Order(cls.TotalAmount.Desc()).
 		Find(&results).Error
 	require.NoError(t, err)
 	require.Greater(t, len(results), 0)

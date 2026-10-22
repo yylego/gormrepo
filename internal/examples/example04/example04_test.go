@@ -61,7 +61,7 @@ func TestTwoModelsBasicOperations(t *testing.T) {
 
 	// 查询活跃分类
 	activeCategories, err := categoryRepo.Find(func(db *gorm.DB, cls *models.CategoryColumns) *gorm.DB {
-		return db.Where(cls.Status.Eq("active")).Order(cls.Sort.OrderByBottle("asc").Ox())
+		return db.Where(cls.Status.Eq("active")).Order(cls.Sort.Asc())
 	})
 	require.NoError(t, err)
 	require.Len(t, activeCategories, 2)
@@ -74,7 +74,7 @@ func TestTwoModelsBasicOperations(t *testing.T) {
 
 	// 查询高价产品
 	expensiveProducts, err := productRepo.Find(func(db *gorm.DB, cls *models.ProductColumns) *gorm.DB {
-		return db.Where(cls.Price.Gt(100.0)).Order(cls.Price.OrderByBottle("desc").Ox())
+		return db.Where(cls.Price.Gt(100.0)).Order(cls.Price.Desc())
 	})
 	require.NoError(t, err)
 	require.Len(t, expensiveProducts, 2)

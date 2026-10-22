@@ -156,9 +156,9 @@ func selectFunc1(t *testing.T, db *gorm.DB) []*UserOrderProduct {
 		})).
 		Where(productColumns.Name.In([]string{"Laptop", "Mouse", "Phone"})).
 		Where(userColumns.ID.Gte(2)).
-		Order(userColumns.ID.Ob("asc").
-			Ob(orderColumns.ID.Ob("asc")).
-			Ob(productColumns.ID.Ob("asc")).Ox()).
+		Order(userColumns.ID.Asc()).
+		Order(orderColumns.ID.Asc()).
+		Order(productColumns.ID.Asc()).
 		Scan(&results).Error)
 	t.Log(neatjsons.S(results))
 	return results

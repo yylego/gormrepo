@@ -151,8 +151,8 @@ func TestBatchFind(t *testing.T) {
 			func(db *gorm.DB, cls *models.EmployeeColumns) *gorm.DB {
 				return db.Where(cls.Status.NotEq("DELETED"))
 			},
-			func(cls *models.EmployeeColumns) gormcnm.OrderByBottle {
-				return cls.ID.OrderByBottle("asc")
+			func(cls *models.EmployeeColumns) gormcnm.Ordering {
+				return cls.ID.Ob("asc")
 			},
 			&gormrepo.Pagination{Offset: offset, Limit: batchSize},
 		)

@@ -34,7 +34,7 @@ func TestTableRepo_Repo(t *testing.T) {
 	repo := gormtablerepo.NewTableRepo(gormclass.UseTable(&Student{}))
 	students, count, err := repo.Repo(db).FindPageAndCount(func(db *gorm.DB, cls *StudentColumns) *gorm.DB {
 		return db.Where(cls.Name.In([]string{"A", "B", "C"}))
-	}, func(cls *StudentColumns) gormcnm.OrderByBottle {
+	}, func(cls *StudentColumns) gormcnm.Ordering {
 		return cls.Rank.Ob("desc")
 	}, &gormrepo.Pagination{
 		Limit:  3,
@@ -68,7 +68,7 @@ func TestTableRepo_Gorm(t *testing.T) {
 	}
 	err := repo.Gorm(db).Find(func(db *gorm.DB, cls *StudentColumns) *gorm.DB {
 		return db.Where(cls.Name.In([]string{"A", "B", "C"})).
-			Order(cls.Rank.Ob("desc").Ox()).
+			Order(cls.Rank.Desc()).
 			Scopes(pagination.Scope())
 	}, &students).Error
 	require.NoError(t, err)

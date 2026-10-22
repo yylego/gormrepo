@@ -84,7 +84,7 @@ func TestBasicGormRepoUsage(t *testing.T) {
 	// 6. Where - 构建查询，可用于复杂查询
 	var customUser models.User
 	err = repo.Where(func(db *gorm.DB, cls *models.UserColumns) *gorm.DB {
-		return db.Where(cls.Name.Like("%三%")).Order(cls.ID.OrderByBottle("desc").Ox())
+		return db.Where(cls.Name.Like("%三%")).Order(cls.ID.Desc())
 	}).First(&customUser).Error
 	require.NoError(t, err)
 	require.Equal(t, "张三", customUser.Name)

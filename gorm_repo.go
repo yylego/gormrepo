@@ -96,10 +96,10 @@ func (repo *GormRepo[MOD, CLS]) Find(where func(db *gorm.DB, cls CLS) *gorm.DB) 
 //
 // FindO 检索符合 where 条件的记录并按指定顺序排序
 // O = Ordering，返回所有匹配记录并按指定顺序排列
-func (repo *GormRepo[MOD, CLS]) FindO(where func(db *gorm.DB, cls CLS) *gorm.DB, ordering func(cls CLS) gormcnm.OrderByBottle) ([]*MOD, error) {
+func (repo *GormRepo[MOD, CLS]) FindO(where func(db *gorm.DB, cls CLS) *gorm.DB, ordering func(cls CLS) gormcnm.Ordering) ([]*MOD, error) {
 	var results []*MOD
 	db := where(repo.db, repo.cls)
-	db = db.Order(string(ordering(repo.cls)))
+	db = db.Order(ordering(repo.cls).Ox())
 	if err := db.Find(&results).Error; err != nil {
 		return nil, err
 	}
@@ -112,7 +112,7 @@ func (repo *GormRepo[MOD, CLS]) FindO(where func(db *gorm.DB, cls CLS) *gorm.DB,
 // FindN 检索有限数量的符合 where 条件的记录
 // 最多返回 size 条记录
 func (repo *GormRepo[MOD, CLS]) FindN(where func(db *gorm.DB, cls CLS) *gorm.DB, size int) ([]*MOD, error) {
-	var results = make([]*MOD, 0, size)
+	var results []*MOD
 	if err := where(repo.db, repo.cls).Limit(size).Find(&results).Error; err != nil {
 		return nil, err
 	}
@@ -148,7 +148,7 @@ func (repo *GormRepo[MOD, CLS]) FindC(where func(db *gorm.DB, cls CLS) *gorm.DB,
 //
 // FindPageAndCount 使用排序检索分页记录并返回总数
 // 在单个方法调用中组合分页和计数查询
-func (repo *GormRepo[MOD, CLS]) FindPageAndCount(where func(db *gorm.DB, cls CLS) *gorm.DB, ordering func(cls CLS) gormcnm.OrderByBottle, page *Pagination) ([]*MOD, int64, error) {
+func (repo *GormRepo[MOD, CLS]) FindPageAndCount(where func(db *gorm.DB, cls CLS) *gorm.DB, ordering func(cls CLS) gormcnm.Ordering, page *Pagination) ([]*MOD, int64, error) {
 	results, err := repo.FindPage(where, ordering, page)
 	if err != nil {
 		return nil, 0, err
@@ -166,13 +166,11 @@ func (repo *GormRepo[MOD, CLS]) FindPageAndCount(where func(db *gorm.DB, cls CLS
 //
 // FindPage 使用排序检索分页记录
 // 使用 Pagination 结构体指定偏移和限制
-func (repo *GormRepo[MOD, CLS]) FindPage(where func(db *gorm.DB, cls CLS) *gorm.DB, ordering func(cls CLS) gormcnm.OrderByBottle, page *Pagination) ([]*MOD, error) {
+func (repo *GormRepo[MOD, CLS]) FindPage(where func(db *gorm.DB, cls CLS) *gorm.DB, ordering func(cls CLS) gormcnm.Ordering, page *Pagination) ([]*MOD, error) {
 	db := where(repo.db, repo.cls)
-	// GORM method just receives a few types, so we convert it to string
-	// GORM 方法只接受几种类型，因此我们将其转换为字符串
-	db = db.Order(string(ordering(repo.cls)))
+	db = db.Order(ordering(repo.cls).Ox())
 	db = db.Limit(page.Limit).Offset(page.Offset)
-	var results = make([]*MOD, 0, page.Limit)
+	var results []*MOD
 	if err := db.Find(&results).Error; err != nil {
 		return nil, err
 	}
@@ -190,12 +188,39 @@ func (repo *GormRepo[MOD, CLS]) Count(where func(db *gorm.DB, cls CLS) *gorm.DB)
 	return count, nil
 }
 
+// Pluck returns the values of one column across records matching the where condition
+// The result type T comes from the column, e.g. cls.Username (ColumnName[string]) gives []string
+//
+// Pluck 返回符合 where 条件的记录中某一列的值
+// 结果类型 T 由列决定，例如 cls.Username（ColumnName[string]）得到 []string
+func (repo *GormRepo[MOD, CLS]) Pluck[T any](where func(db *gorm.DB, cls CLS) *gorm.DB, column func(cls CLS) gormcnm.ColumnName[T]) ([]T, error) {
+	var values []T
+	if err := where(repo.db, repo.cls).Model((*MOD)(nil)).Pluck(column(repo.cls).Name(), &values).Error; err != nil {
+		return nil, err
+	}
+	return values, nil
+}
+
+// Scan selects from the MOD table and scans rows into a result struct T
+// Fits Select / Joins / Group queries whose rows do not match MOD, e.g. repo.Scan[AccountBrief](where)
+//
+// Scan 在 MOD 对应的表上查询，并把结果行扫描到结构体 T
+// 适合 Select / Joins / Group 等结果行与 MOD 不一致的查询，例如 repo.Scan[AccountBrief](where)
+func (repo *GormRepo[MOD, CLS]) Scan[T any](where func(db *gorm.DB, cls CLS) *gorm.DB) ([]T, error) {
+	var results []T
+	// Rows() 在没有 Dest 时把 Model 当 Dest 用，nil 指针会报 ErrInvalidValue，因此用 new(MOD)
+	if err := where(repo.db.Model(new(MOD)), repo.cls).Scan(&results).Error; err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
 // Update updates a single column for records matching the where condition
 // Uses valueFunc to specify column name and value
 //
 // Update 更新符合 where 条件的记录的单个列
 // 使用 valueFunc 指定列名和值
-func (repo *GormRepo[MOD, CLS]) Update(where func(db *gorm.DB, cls CLS) *gorm.DB, valueFunc func(cls CLS) (string, interface{})) error {
+func (repo *GormRepo[MOD, CLS]) Update(where func(db *gorm.DB, cls CLS) *gorm.DB, valueFunc func(cls CLS) (string, any)) error {
 	if err := repo.Gorm().Update(where, valueFunc).Error; err != nil {
 		return err
 	}
@@ -207,7 +232,7 @@ func (repo *GormRepo[MOD, CLS]) Update(where func(db *gorm.DB, cls CLS) *gorm.DB
 //
 // Updates 更新符合 where 条件的记录的多个列
 // 使用 mapValues 指定列值对
-func (repo *GormRepo[MOD, CLS]) Updates(where func(db *gorm.DB, cls CLS) *gorm.DB, mapValues func(cls CLS) map[string]interface{}) error {
+func (repo *GormRepo[MOD, CLS]) Updates(where func(db *gorm.DB, cls CLS) *gorm.DB, mapValues func(cls CLS) map[string]any) error {
 	if err := repo.Gorm().Updates(where, mapValues).Error; err != nil {
 		return err
 	}
@@ -220,7 +245,7 @@ func (repo *GormRepo[MOD, CLS]) Updates(where func(db *gorm.DB, cls CLS) *gorm.D
 // UpdatesM 使用 ColumnValueMap 更新多列，提供流畅的 API，无需调用 AsMap()
 // 用法：repo.UpdatesM(where, func(cls CLS) gormcnm.ColumnValueMap { return cls.Kw(cls.Name.Kv("x"))... })
 func (repo *GormRepo[MOD, CLS]) UpdatesM(where func(db *gorm.DB, cls CLS) *gorm.DB, newValues func(cls CLS) gormcnm.ColumnValueMap) error {
-	return repo.Updates(where, func(cls CLS) map[string]interface{} {
+	return repo.Updates(where, func(cls CLS) map[string]any {
 		return newValues(cls).AsMap()
 	})
 }

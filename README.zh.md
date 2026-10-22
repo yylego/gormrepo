@@ -1,9 +1,13 @@
+<!-- TEMPLATE (ZH) BEGIN: BADGES -->
+
 [![GitHub Workflow Status (branch)](https://img.shields.io/github/actions/workflow/status/yylego/gormrepo/release.yml?branch=main&label=BUILD)](https://github.com/yylego/gormrepo/actions/workflows/release.yml?query=branch%3Amain)
 [![GoDoc](https://pkg.go.dev/badge/github.com/yylego/gormrepo)](https://pkg.go.dev/github.com/yylego/gormrepo)
 [![Coverage Status](https://img.shields.io/coveralls/github/yylego/gormrepo/main.svg)](https://coveralls.io/github/yylego/gormrepo?branch=main)
-[![Supported Go Versions](https://img.shields.io/badge/Go-1.25+-lightgrey.svg)](https://go.dev/)
+[![Supported Go Versions](https://img.shields.io/badge/Go-1.27%2B-lightgrey.svg)](https://go.dev/)
 [![GitHub Release](https://img.shields.io/github/release/yylego/gormrepo.svg)](https://github.com/yylego/gormrepo/releases)
 [![Go Report Card](https://goreportcard.com/badge/github.com/yylego/gormrepo)](https://goreportcard.com/report/github.com/yylego/gormrepo)
+
+<!-- TEMPLATE (ZH) CLOSE: BADGES -->
 
 # 🚀 GORM 生态系统 - 企业级类型安全数据库操作
 
@@ -25,7 +29,7 @@
 
 [ENGLISH README](README.md)
 
-<!-- TEMPLATE (ZH) END: LANGUAGE NAVIGATION -->
+<!-- TEMPLATE (ZH) CLOSE: LANGUAGE NAVIGATION -->
 
 ---
 
@@ -118,8 +122,8 @@ accounts, err := repo.With(ctx, db).FindO(
     func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
         return db.Where(cls.Age.Gte(18))
     },
-    func(cls *AccountColumns) gormcnm.OrderByBottle {
-        return cls.ID.OrderByBottle("DESC")
+    func(cls *AccountColumns) gormcnm.Ordering {
+        return cls.ID.Ob("DESC")
     },
 )
 
@@ -128,8 +132,8 @@ accounts, err := repo.With(ctx, db).FindPage(
     func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
         return db.Where(cls.Age.Gte(18))
     },
-    func(cls *AccountColumns) gormcnm.OrderByBottle {
-        return cls.ID.OrderByBottle("DESC")
+    func(cls *AccountColumns) gormcnm.Ordering {
+        return cls.ID.Ob("DESC")
     },
     &gormrepo.Pagination{Limit: 10, Offset: 0},
 )
@@ -139,8 +143,8 @@ accounts, count, err := repo.With(ctx, db).FindPageAndCount(
     func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
         return db.Where(cls.Age.Between(18, 65))
     },
-    func(cls *AccountColumns) gormcnm.OrderByBottle {
-        return cls.ID.OrderByBottle("DESC")
+    func(cls *AccountColumns) gormcnm.Ordering {
+        return cls.ID.Ob("DESC")
     },
     &gormrepo.Pagination{Limit: 10, Offset: 0},
 )
@@ -153,6 +157,18 @@ count, err := repo.With(ctx, db).Count(func(db *gorm.DB, cls *AccountColumns) *g
 // gormrepo - Exist
 exist, err := repo.With(ctx, db).Exist(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
     return db.Where(cls.Accountname.Eq("alice"))
+})
+
+// gormrepo - Pluck（取一列的值，结果类型由列决定：这里是 []string）
+names, err := repo.With(ctx, db).Pluck(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+    return db.Where(cls.Age.Gte(18))
+}, func(cls *AccountColumns) gormcnm.ColumnName[string] {
+    return cls.Accountname
+})
+
+// gormrepo - Scan（把结果行扫描到结构体，适合 Select / Joins / Group）
+briefs, err := repo.With(ctx, db).Scan[AccountBrief](func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+    return db.Select(cls.ID.Name(), cls.Accountname.Name()).Where(cls.Age.Gte(18))
 })
 
 // gormrepo - Where 条件: Eq, Ne, Gt, Lt, Gte, Lte
@@ -194,7 +210,7 @@ accounts, err := repo.With(ctx, db).Find(func(db *gorm.DB, cls *AccountColumns) 
 // gormrepo - Order / Select
 accounts, err := repo.With(ctx, db).Find(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
     return db.Where(cls.Age.Gte(18)).
-              Order(cls.Age.Name() + " DESC").
+              Order(cls.Age.Desc()).
               Select(cls.ID.Name(), cls.Accountname.Name())
 })
 ```
@@ -211,6 +227,8 @@ accounts, err := repo.With(ctx, db).Find(func(db *gorm.DB, cls *AccountColumns) 
 | `FindPageAndCount` | `where, ordering, pagination`               | `[]*MOD, int64, error`   | 分页查询带总数           |
 | `Count`            | `where func(db *gorm.DB, cls CLS) *gorm.DB` | `int64, error`           | 统计匹配记录数           |
 | `Exist`            | `where func(db *gorm.DB, cls CLS) *gorm.DB` | `bool, error`            | 检查记录是否存在         |
+| `Pluck[T]`         | `where, column`                             | `[]T, error`             | 取某一列的值             |
+| `Scan[T]`          | `where func(db *gorm.DB, cls CLS) *gorm.DB` | `[]T, error`             | 结果行扫描到结构体 T     |
 
 #### 5. 如何创建
 
@@ -434,7 +452,7 @@ accounts, err := repo.With(ctx, db).Unscoped().Find(func(db *gorm.DB, cls *Accou
 - **[gormcngen](https://github.com/yylego/gormcngen)** - 使用 AST 的代码生成引擎，支持类型安全的 GORM 操作
 - **[gormrepo](https://github.com/yylego/gormrepo)** - 仓储模式实现，遵循 GORM 最佳实践（本项目）
 - **[gormmom](https://github.com/yylego/gormmom)** - 原生语言 GORM 标签生成引擎，支持智能列名
-- **[gormzhcn](https://github.com/go-zwbc/gormzhcn)** - 完整的 GORM 中文编程接口
+- **[gormzhcn](https://github.com/yylego/gormzhcn)** - 完整的 GORM 中文编程接口
 
 每个包针对 GORM 开发的不同方面，从本地化到类型安全操作和代码生成。
 
@@ -498,10 +516,4 @@ MIT 许可证 - 详见 [LICENSE](LICENSE)。
 
 **祝你用这个包编程愉快！** 🎉🎉🎉
 
-<!-- TEMPLATE (ZH) END: STANDARD PROJECT FOOTER -->
-
----
-
-## 📈 GitHub Stars
-
-[![Stargazers](https://starchart.cc/yylego/gormrepo.svg?variant=adaptive)](https://starchart.cc/yylego/gormrepo)
+<!-- TEMPLATE (ZH) CLOSE: STANDARD PROJECT FOOTER -->

@@ -106,10 +106,10 @@ func TestExample(t *testing.T) {
 		Scopes(guestRepo.Base().NewWhereScope(func(db *gorm.DB, cls *models.GuestColumns) *gorm.DB {
 			return db.Where(cls.ID.Gte(2))
 		})).
-		Scopes(guestRepo.Base().NewOrderScope(func(cls *models.GuestColumns) gormcnm.OrderByBottle {
+		Scopes(guestRepo.Base().NewOrderScope(func(cls *models.GuestColumns) gormcnm.Ordering {
 			return cls.ID.Ob("asc")
 		})).
-		Scopes(orderRepo.Base().NewOrderScope(func(cls *models.OrderColumns) gormcnm.OrderByBottle {
+		Scopes(orderRepo.Base().NewOrderScope(func(cls *models.OrderColumns) gormcnm.Ordering {
 			return cls.ID.Ob("asc")
 		})).
 		Scan(&results).Error)

@@ -41,9 +41,9 @@ func (repo *BaseRepo[MOD, CLS]) NewWhereScope(where func(db *gorm.DB, cls CLS) *
 //
 // NewOrderScope 创建应用排序条件的 GORM scope 函数
 // 返回可与 db.Scopes() 配合使用以设置排序的 ScopeFunction
-func (repo *BaseRepo[MOD, CLS]) NewOrderScope(ordering func(cls CLS) gormcnm.OrderByBottle) ScopeFunction {
+func (repo *BaseRepo[MOD, CLS]) NewOrderScope(ordering func(cls CLS) gormcnm.Ordering) ScopeFunction {
 	return func(db *gorm.DB) *gorm.DB {
-		return db.Order(string(ordering(repo.cls)))
+		return db.Order(ordering(repo.cls).Ox())
 	}
 }
 
@@ -73,8 +73,8 @@ func (p *Pagination) Scope() ScopeFunction {
 //
 // NewPaginateScope 创建应用分页和排序的 GORM scope 函数
 // 在单个 scope 中组合排序、limit 和 offset
-func (repo *BaseRepo[MOD, CLS]) NewPaginateScope(ordering func(cls CLS) gormcnm.OrderByBottle, page *Pagination) ScopeFunction {
+func (repo *BaseRepo[MOD, CLS]) NewPaginateScope(ordering func(cls CLS) gormcnm.Ordering, page *Pagination) ScopeFunction {
 	return func(db *gorm.DB) *gorm.DB {
-		return db.Order(string(ordering(repo.cls))).Limit(page.Limit).Offset(page.Offset)
+		return db.Order(ordering(repo.cls).Ox()).Limit(page.Limit).Offset(page.Offset)
 	}
 }

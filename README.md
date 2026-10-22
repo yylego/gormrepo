@@ -1,9 +1,13 @@
+<!-- TEMPLATE (EN) BEGIN: BADGES -->
+
 [![GitHub Workflow Status (branch)](https://img.shields.io/github/actions/workflow/status/yylego/gormrepo/release.yml?branch=main&label=BUILD)](https://github.com/yylego/gormrepo/actions/workflows/release.yml?query=branch%3Amain)
 [![GoDoc](https://pkg.go.dev/badge/github.com/yylego/gormrepo)](https://pkg.go.dev/github.com/yylego/gormrepo)
 [![Coverage Status](https://img.shields.io/coveralls/github/yylego/gormrepo/main.svg)](https://coveralls.io/github/yylego/gormrepo?branch=main)
-[![Supported Go Versions](https://img.shields.io/badge/Go-1.25+-lightgrey.svg)](https://go.dev/)
+[![Supported Go Versions](https://img.shields.io/badge/Go-1.27%2B-lightgrey.svg)](https://go.dev/)
 [![GitHub Release](https://img.shields.io/github/release/yylego/gormrepo.svg)](https://github.com/yylego/gormrepo/releases)
 [![Go Report Card](https://goreportcard.com/badge/github.com/yylego/gormrepo)](https://goreportcard.com/report/github.com/yylego/gormrepo)
+
+<!-- TEMPLATE (EN) CLOSE: BADGES -->
 
 # 🚀 GORM Ecosystem - Enterprise-Grade Type-Safe Database Operations
 
@@ -25,7 +29,7 @@
 
 [中文说明](README.zh.md)
 
-<!-- TEMPLATE (EN) END: LANGUAGE NAVIGATION -->
+<!-- TEMPLATE (EN) CLOSE: LANGUAGE NAVIGATION -->
 
 ---
 
@@ -118,8 +122,8 @@ accounts, err := repo.With(ctx, db).FindO(
     func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
         return db.Where(cls.Age.Gte(18))
     },
-    func(cls *AccountColumns) gormcnm.OrderByBottle {
-        return cls.ID.OrderByBottle("DESC")
+    func(cls *AccountColumns) gormcnm.Ordering {
+        return cls.ID.Ob("DESC")
     },
 )
 
@@ -128,8 +132,8 @@ accounts, err := repo.With(ctx, db).FindPage(
     func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
         return db.Where(cls.Age.Gte(18))
     },
-    func(cls *AccountColumns) gormcnm.OrderByBottle {
-        return cls.ID.OrderByBottle("DESC")
+    func(cls *AccountColumns) gormcnm.Ordering {
+        return cls.ID.Ob("DESC")
     },
     &gormrepo.Pagination{Limit: 10, Offset: 0},
 )
@@ -139,8 +143,8 @@ accounts, count, err := repo.With(ctx, db).FindPageAndCount(
     func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
         return db.Where(cls.Age.Between(18, 65))
     },
-    func(cls *AccountColumns) gormcnm.OrderByBottle {
-        return cls.ID.OrderByBottle("DESC")
+    func(cls *AccountColumns) gormcnm.Ordering {
+        return cls.ID.Ob("DESC")
     },
     &gormrepo.Pagination{Limit: 10, Offset: 0},
 )
@@ -153,6 +157,18 @@ count, err := repo.With(ctx, db).Count(func(db *gorm.DB, cls *AccountColumns) *g
 // gormrepo - Exist
 exist, err := repo.With(ctx, db).Exist(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
     return db.Where(cls.Accountname.Eq("alice"))
+})
+
+// gormrepo - Pluck (one column, result type comes from the column: []string here)
+names, err := repo.With(ctx, db).Pluck(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+    return db.Where(cls.Age.Gte(18))
+}, func(cls *AccountColumns) gormcnm.ColumnName[string] {
+    return cls.Accountname
+})
+
+// gormrepo - Scan (rows into a result struct, fits Select / Joins / Group)
+briefs, err := repo.With(ctx, db).Scan[AccountBrief](func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+    return db.Select(cls.ID.Name(), cls.Accountname.Name()).Where(cls.Age.Gte(18))
 })
 
 // gormrepo - Where conditions: Eq, Ne, Gt, Lt, Gte, Lte
@@ -194,7 +210,7 @@ accounts, err := repo.With(ctx, db).Find(func(db *gorm.DB, cls *AccountColumns) 
 // gormrepo - Order / Select
 accounts, err := repo.With(ctx, db).Find(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
     return db.Where(cls.Age.Gte(18)).
-              Order(cls.Age.Name() + " DESC").
+              Order(cls.Age.Desc()).
               Select(cls.ID.Name(), cls.Accountname.Name())
 })
 ```
@@ -211,6 +227,8 @@ accounts, err := repo.With(ctx, db).Find(func(db *gorm.DB, cls *AccountColumns) 
 | `FindPageAndCount` | `where, ordering, pagination`               | `[]*MOD, int64, error`   | Paginated search with record count   |
 | `Count`            | `where func(db *gorm.DB, cls CLS) *gorm.DB` | `int64, error`           | Count matching records               |
 | `Exist`            | `where func(db *gorm.DB, cls CLS) *gorm.DB` | `bool, error`            | Check if records exist               |
+| `Pluck[T]`         | `where, column`                             | `[]T, error`             | Values of one column                 |
+| `Scan[T]`          | `where func(db *gorm.DB, cls CLS) *gorm.DB` | `[]T, error`             | Rows into result struct T            |
 
 #### 5. How to Create
 
@@ -434,7 +452,7 @@ Explore the complete GORM ecosystem with these integrated packages:
 - **[gormcngen](https://github.com/yylego/gormcngen)** - Code generation engine using AST, enables type-safe GORM operations
 - **[gormrepo](https://github.com/yylego/gormrepo)** - Repo pattern implementation with GORM best practices (this project)
 - **[gormmom](https://github.com/yylego/gormmom)** - Native language GORM tag generation engine with smart column naming
-- **[gormzhcn](https://github.com/go-zwbc/gormzhcn)** - Complete Chinese programming interface with GORM
+- **[gormzhcn](https://github.com/yylego/gormzhcn)** - Complete Chinese programming interface with GORM
 
 Each package targets different aspects of GORM development, from localization to type-safe operations and code generation.
 
@@ -498,10 +516,4 @@ Welcome to contribute to this project via submitting merge requests and reportin
 
 **Have Fun Coding with this package!** 🎉🎉🎉
 
-<!-- TEMPLATE (EN) END: STANDARD PROJECT FOOTER -->
-
----
-
-## 📈 GitHub Stars
-
-[![Stargazers](https://starchart.cc/yylego/gormrepo.svg?variant=adaptive)](https://starchart.cc/yylego/gormrepo)
+<!-- TEMPLATE (EN) CLOSE: STANDARD PROJECT FOOTER -->

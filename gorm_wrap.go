@@ -62,7 +62,7 @@ func (wrap *GormWrap[MOD, CLS]) Find(where func(db *gorm.DB, cls CLS) *gorm.DB, 
 //
 // Update 更新符合 where 条件的记录的单个列
 // 使用 valueFunc 指定列名和值
-func (wrap *GormWrap[MOD, CLS]) Update(where func(db *gorm.DB, cls CLS) *gorm.DB, valueFunc func(cls CLS) (string, interface{})) *gorm.DB {
+func (wrap *GormWrap[MOD, CLS]) Update(where func(db *gorm.DB, cls CLS) *gorm.DB, valueFunc func(cls CLS) (string, any)) *gorm.DB {
 	return where(wrap.db, wrap.cls).Model((*MOD)(nil)).Update(valueFunc(wrap.cls))
 }
 
@@ -71,7 +71,7 @@ func (wrap *GormWrap[MOD, CLS]) Update(where func(db *gorm.DB, cls CLS) *gorm.DB
 //
 // Updates 更新符合 where 条件的记录的多个列
 // 使用 mapValues 指定列值对
-func (wrap *GormWrap[MOD, CLS]) Updates(where func(db *gorm.DB, cls CLS) *gorm.DB, mapValues func(cls CLS) map[string]interface{}) *gorm.DB {
+func (wrap *GormWrap[MOD, CLS]) Updates(where func(db *gorm.DB, cls CLS) *gorm.DB, mapValues func(cls CLS) map[string]any) *gorm.DB {
 	return where(wrap.db, wrap.cls).Model((*MOD)(nil)).Updates(mapValues(wrap.cls))
 }
 
@@ -81,7 +81,7 @@ func (wrap *GormWrap[MOD, CLS]) Updates(where func(db *gorm.DB, cls CLS) *gorm.D
 // UpdatesM 使用 ColumnValueMap 更新多列，提供流畅的 API，无需调用 AsMap()
 // 用法：wrap.UpdatesM(where, func(cls CLS) gormcnm.ColumnValueMap { return cls.Kw(cls.Name.Kv("x"))... })
 func (wrap *GormWrap[MOD, CLS]) UpdatesM(where func(db *gorm.DB, cls CLS) *gorm.DB, newValues func(cls CLS) gormcnm.ColumnValueMap) *gorm.DB {
-	return wrap.Updates(where, func(cls CLS) map[string]interface{} {
+	return wrap.Updates(where, func(cls CLS) map[string]any {
 		return newValues(cls).AsMap()
 	})
 }

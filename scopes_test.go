@@ -56,7 +56,7 @@ func TestRepo_Paginate(t *testing.T) {
 
 	// Create scope to sort via username (desc) nickname (asc) with limit=10, offset=0
 	// 创建 scope 按 username (desc) nickname (asc) 排序，limit=10, offset=0
-	pageScope := repo.NewPaginateScope(func(cls *AccountColumns) gormcnm.OrderByBottle {
+	pageScope := repo.NewPaginateScope(func(cls *AccountColumns) gormcnm.Ordering {
 		return cls.Username.Ob("desc").Ob(cls.Nickname.Ob("asc"))
 	}, &gormrepo.Pagination{
 		Limit:  10,

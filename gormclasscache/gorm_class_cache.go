@@ -7,14 +7,16 @@ import (
 	"github.com/yylego/gormrepo/gormclass"
 	"github.com/yylego/mutexmap"
 	"github.com/yylego/mutexmap/cachemap"
+	"github.com/yylego/rese"
 )
 
 // UmcV1 提供缓存功能，避免每次都调用 Columns 函数生成 gormcnm 对象，提升性能
 // UmcV1 provides caching feature, avoiding the need to invoke the Columns function to generate gormcnm objects each time, thus improving performance.
-func UmcV1[MOD gormclass.ModelClass[CLS], CLS any](a MOD, cache *cachemap.Map[string, interface{}]) (MOD, CLS) {
-	vax, _ := cache.Getset(a.TableName(), func() (interface{}, error) {
+func UmcV1[MOD gormclass.ModelClass[CLS], CLS any](a MOD, cache *cachemap.Map[string, any]) (MOD, CLS) {
+	// cachemap 会把 Columns 里的 panic 收成 error 返回，因此要断言，不能丢弃
+	vax := rese.V1(cache.Getset(a.TableName(), func() (any, error) {
 		return a.Columns(), nil
-	})
+	}))
 	cls, ok := vax.(CLS)
 	if !ok {
 		panic(erero.Errorf("wrong TABLE_NAME=%s", a.TableName()))
@@ -24,8 +26,8 @@ func UmcV1[MOD gormclass.ModelClass[CLS], CLS any](a MOD, cache *cachemap.Map[st
 
 // UmcV2 提供缓存功能，避免每次都调用 Columns 函数生成 gormcnm 对象，提升性能
 // UmcV2 provides caching feature, avoiding the need to invoke the Columns function to generate gormcnm objects each time, thus improving performance.
-func UmcV2[MOD gormclass.ModelClass[CLS], CLS any](a MOD, cache *mutexmap.Map[string, interface{}]) (MOD, CLS) {
-	vax, _ := cache.Getset(a.TableName(), func() interface{} {
+func UmcV2[MOD gormclass.ModelClass[CLS], CLS any](a MOD, cache *mutexmap.Map[string, any]) (MOD, CLS) {
+	vax, _ := cache.Getset(a.TableName(), func() any { // 第二个返回值是命中/新建状态，不是错误
 		return a.Columns()
 	})
 	cls, ok := vax.(CLS)

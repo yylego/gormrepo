@@ -54,7 +54,7 @@ func TestBasicSorting(t *testing.T) {
 	// 1. 使用Where构建带排序的查询
 	sortedBooks := make([]*models.Book, 0)
 	err := repo.Where(func(db *gorm.DB, cls *models.BookColumns) *gorm.DB {
-		return db.Where(cls.Category.Eq("tech")).Order(cls.Price.Ob("asc").Ox())
+		return db.Where(cls.Category.Eq("tech")).Order(cls.Price.Asc())
 	}).Find(&sortedBooks).Error
 	require.NoError(t, err)
 
@@ -68,7 +68,7 @@ func TestBasicSorting(t *testing.T) {
 
 	// 2. 按评分降序排序
 	err = repo.Where(func(db *gorm.DB, cls *models.BookColumns) *gorm.DB {
-		return db.Where(cls.Category.Eq("tech")).Order(cls.Rating.Ob("desc").Ox())
+		return db.Where(cls.Category.Eq("tech")).Order(cls.Rating.Desc())
 	}).Find(&sortedBooks).Error
 	require.NoError(t, err)
 
@@ -87,9 +87,9 @@ func TestMultipleFieldSorting(t *testing.T) {
 		func(db *gorm.DB, cls *models.BookColumns) *gorm.DB {
 			return db.Where(cls.Category.Eq("tech"))
 		},
-		func(cls *models.BookColumns) gormcnm.OrderByBottle {
+		func(cls *models.BookColumns) gormcnm.Ordering {
 			// 先按出版年份降序，再按价格升序
-			return cls.PublishYear.OrderByBottle("desc").Ob(cls.Price.Ob("asc"))
+			return cls.PublishYear.Ob("desc").Ob(cls.Price.Ob("asc"))
 		},
 		&gormrepo.Pagination{Offset: 0, Limit: 10},
 	)
@@ -118,7 +118,7 @@ func TestLimitQueries(t *testing.T) {
 	// 1. 获取最贵的3本书
 	top3Expensive, err := repo.FindN(
 		func(db *gorm.DB, cls *models.BookColumns) *gorm.DB {
-			return db.Where(cls.Category.Eq("tech")).Order(cls.Price.Ob("desc").Ox())
+			return db.Where(cls.Category.Eq("tech")).Order(cls.Price.Desc())
 		},
 		3,
 	)
@@ -133,7 +133,7 @@ func TestLimitQueries(t *testing.T) {
 	// 2. 获取最新出版的5本书
 	latest5Books, err := repo.FindN(
 		func(db *gorm.DB, cls *models.BookColumns) *gorm.DB {
-			return db.Where(cls.Category.Eq("tech")).Order(cls.PublishYear.Ob("desc").Ob(cls.ID.Ob("desc")).Ox())
+			return db.Where(cls.Category.Eq("tech")).Order(cls.PublishYear.Desc()).Order(cls.ID.Desc())
 		},
 		5,
 	)
@@ -147,7 +147,7 @@ func TestLimitQueries(t *testing.T) {
 
 	// 3. 获取评分最高的书（只要1本）
 	topRatedBook, err := repo.First(func(db *gorm.DB, cls *models.BookColumns) *gorm.DB {
-		return db.Where(cls.Category.Eq("tech")).Order(cls.Rating.OrderByBottle("desc").Ox())
+		return db.Where(cls.Category.Eq("tech")).Order(cls.Rating.Desc())
 	})
 	require.NoError(t, err)
 	require.NotNil(t, topRatedBook)
@@ -164,8 +164,8 @@ func TestComplexSortingAndFiltering(t *testing.T) {
 		func(db *gorm.DB, cls *models.BookColumns) *gorm.DB {
 			return db.Where(cls.PublishYear.Gt(2019)).Where(cls.Price.Lt(70.0))
 		},
-		func(cls *models.BookColumns) gormcnm.OrderByBottle {
-			return cls.Sales.OrderByBottle("desc")
+		func(cls *models.BookColumns) gormcnm.Ordering {
+			return cls.Sales.Ob("desc")
 		},
 		&gormrepo.Pagination{Offset: 0, Limit: 5},
 	)
@@ -183,7 +183,7 @@ func TestComplexSortingAndFiltering(t *testing.T) {
 	premiumBooks, err := repo.Find(func(db *gorm.DB, cls *models.BookColumns) *gorm.DB {
 		return db.Where(cls.Rating.Gt(4.5)).
 			Where(cls.Sales.Gt(800)).
-			Order(cls.Rating.Ob("desc").Ob(cls.Sales.Ob("desc")).Ox())
+			Order(cls.Rating.Desc()).Order(cls.Sales.Desc())
 	})
 	require.NoError(t, err)
 
@@ -221,7 +221,7 @@ func TestRangeQueriesWithSorting(t *testing.T) {
 			func(db *gorm.DB, cls *models.BookColumns) *gorm.DB {
 				condition := gormcnm.Qx(cls.PublishYear.Gte(decade)).AND(gormcnm.Qx(cls.PublishYear.Lt(decade + 10)))
 				return db.Scopes(condition.Scope()).
-					Order(cls.PublishYear.Ob("desc").Ob(cls.Rating.Ob("desc")).Ox())
+					Order(cls.PublishYear.Desc()).Order(cls.Rating.Desc())
 			},
 			2, // 每个年代最多2本
 		)

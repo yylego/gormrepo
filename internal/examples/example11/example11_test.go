@@ -86,7 +86,7 @@ func selectFunc0(t *testing.T, db *gorm.DB) []*UserOrder {
 		Joins(gormjoin.LEFTJOIN(userRepo, orderRepo).On(func(uc *models.UserColumns, oc *models.OrderColumns) []string {
 			return []string{oc.UserID.OnEq(uc.ID)}
 		})).
-		Order(userColumns.ID.Ob("asc").Ob(orderColumns.ID.Ob("asc")).Ox()). // Refactored sorting
+		Order(userColumns.ID.Asc()).Order(orderColumns.ID.Asc()).
 		Scan(&results).Error)
 	t.Log(neatjsons.S(results))
 	return results
@@ -121,7 +121,7 @@ func selectFunc1(t *testing.T, db *gorm.DB) []*UserOrder {
 				oc.UserID.OnEq(uc.ID),
 			}
 		})).
-		Order(userColumns.ID.Ob("asc").Ob(orderColumns.ID.Ob("asc")).Ox()).
+		Order(userColumns.ID.Asc()).Order(orderColumns.ID.Asc()).
 		Scan(&results).Error)
 	t.Log(neatjsons.S(results))
 	return results
