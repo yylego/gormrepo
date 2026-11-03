@@ -1,38 +1,30 @@
 package gormrepo_test
 
 import (
-	"context"
-	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"github.com/yylego/gormrepo"
 	"github.com/yylego/gormrepo/gormclass"
+	"github.com/yylego/gormrepo/internal/models"
 	"github.com/yylego/gormrepo/internal/tests"
 	"github.com/yylego/rese"
 	"gorm.io/gorm"
 )
 
-// TestRepoVersion shows which Repo version is being used
-// 显示当前使用的 Repo 版本
-func TestRepoVersion(t *testing.T) {
-	t.Log("Running generic type alias version (Go 1.24+ native support)")
-	t.Log(runtime.Version())
-}
-
-// TestRepo_Base tests Repo with generic type alias (Go 1.24+ native support)
-// Go 1.24+ 原生支持泛型类型别名，此测试验证类型别名版本
-func TestRepo_Base(t *testing.T) {
+// TestNewRepo tests NewRepo, which gives a Repo, the generic type alias of BaseRepo
+// TestNewRepo 测试 NewRepo，它返回 Repo，即 BaseRepo 的泛型类型别名
+func TestNewRepo(t *testing.T) {
 	db := tests.NewMemDB(t)
 	defer rese.F0(rese.P1(db.DB()).Close)
-	setupDemoData(t, db)
+	createDemoAccounts(t, db)
 
-	repo := gormrepo.NewRepo(gormclass.Use(&Account{}))
+	repo := gormrepo.NewRepo(gormclass.Use(&models.Account{}))
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	t.Run("case-1", func(t *testing.T) {
-		res, err := repo.With(ctx, db).First(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+		res, err := repo.With(ctx, db).First(func(db *gorm.DB, cls *models.AccountColumns) *gorm.DB {
 			return db.Where(cls.Username.Eq("demo-1-username"))
 		})
 		require.NoError(t, err)
@@ -40,7 +32,7 @@ func TestRepo_Base(t *testing.T) {
 	})
 
 	t.Run("case-2", func(t *testing.T) {
-		res, err := repo.With(ctx, db).First(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+		res, err := repo.With(ctx, db).First(func(db *gorm.DB, cls *models.AccountColumns) *gorm.DB {
 			return db.Where(cls.Username.Eq("demo-2-username"))
 		})
 		require.NoError(t, err)

@@ -6,13 +6,17 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// GormWrap is a GORM database connection with column definitions
-// Returns *gorm.DB from all operations that enables method chaining
-// Provides more primitive access compared to GormRepo
+// GormWrap mirrors the GORM methods with the column definitions, each one returns *gorm.DB as GORM does
+// It keeps to what GORM itself has, so the code reads the same as GORM code
+// What GORM does not have is left out on purpose: keeping each extra in two places costs too much
+// The extras (FindO / FindC / ScanOne / ScanList and the (T, error) returns) live in GormRepo
+// A GORM method not mirrored here, such as Count / Pluck / Scan, remains in reach: invoke it on the *gorm.DB from Where
 //
-// GormWrap 是带有列定义的 GORM 数据库连接封装
-// 所有操作返回 *gorm.DB 以便方法链式调用
-// 相比 GormRepo 提供更底层的访问
+// GormWrap 照着 GORM 官方的方法提供带列定义的版本，返回值和 GORM 一样是 *gorm.DB
+// 它只对应 GORM 本身有的能力，写出来跟原生 GORM 代码一个手感
+// 官方没有的能力这里一律不提供：同一个便利在两处各维护一份太费劲
+// 额外的便利（FindO / FindC / ScanOne / ScanList，以及返回 (结果, error)）都放在 GormRepo
+// 这里没对应的 GORM 方法（如 Count / Pluck / Scan），用 Where 拿到 *gorm.DB 后直接调用
 type GormWrap[MOD any, CLS any] struct {
 	db  *gorm.DB // Database connection // 数据库连接
 	cls CLS      // Column definitions // 列定义
@@ -58,21 +62,21 @@ func (wrap *GormWrap[MOD, CLS]) Find(where func(db *gorm.DB, cls CLS) *gorm.DB, 
 }
 
 // Update updates a single column for records matching the where condition
-// Uses valueFunc to specify column name and value
+// Uses newValue to give the column name and the value
 //
 // Update 更新符合 where 条件的记录的单个列
-// 使用 valueFunc 指定列名和值
-func (wrap *GormWrap[MOD, CLS]) Update(where func(db *gorm.DB, cls CLS) *gorm.DB, valueFunc func(cls CLS) (string, any)) *gorm.DB {
-	return where(wrap.db, wrap.cls).Model((*MOD)(nil)).Update(valueFunc(wrap.cls))
+// 使用 newValue 指定列名和值
+func (wrap *GormWrap[MOD, CLS]) Update(where func(db *gorm.DB, cls CLS) *gorm.DB, newValue func(cls CLS) (string, any)) *gorm.DB {
+	return where(wrap.db, wrap.cls).Model((*MOD)(nil)).Update(newValue(wrap.cls))
 }
 
 // Updates updates multiple columns for records matching the where condition
-// Uses mapValues to specify column-value pairs
+// Uses newValues to give the column-value pairs
 //
 // Updates 更新符合 where 条件的记录的多个列
-// 使用 mapValues 指定列值对
-func (wrap *GormWrap[MOD, CLS]) Updates(where func(db *gorm.DB, cls CLS) *gorm.DB, mapValues func(cls CLS) map[string]any) *gorm.DB {
-	return where(wrap.db, wrap.cls).Model((*MOD)(nil)).Updates(mapValues(wrap.cls))
+// 使用 newValues 指定列值对
+func (wrap *GormWrap[MOD, CLS]) Updates(where func(db *gorm.DB, cls CLS) *gorm.DB, newValues func(cls CLS) map[string]any) *gorm.DB {
+	return where(wrap.db, wrap.cls).Model((*MOD)(nil)).Updates(newValues(wrap.cls))
 }
 
 // UpdatesM updates multiple columns using ColumnValueMap, provides fluent API without AsMap() call
@@ -109,8 +113,8 @@ func (wrap *GormWrap[MOD, CLS]) UpdatesC(object *MOD, where func(db *gorm.DB, cl
 //
 // Invoke 使用数据库连接和列定义执行自定义操作
 // 返回 *gorm.DB 以便检查错误和链式调用
-func (wrap *GormWrap[MOD, CLS]) Invoke(clsRun func(db *gorm.DB, cls CLS) *gorm.DB) *gorm.DB {
-	return clsRun(wrap.db, wrap.cls)
+func (wrap *GormWrap[MOD, CLS]) Invoke(run func(db *gorm.DB, cls CLS) *gorm.DB) *gorm.DB {
+	return run(wrap.db, wrap.cls)
 }
 
 // Create inserts a new record into the database
@@ -193,7 +197,7 @@ func (wrap *GormWrap[MOD, CLS]) DeleteM(one *MOD, where func(db *gorm.DB, cls CL
 // Unscoped 禁用软删除作用域并返回新的 GormWrap
 // 通过方法链实现永久删除：wrap.Unscoped().DeleteW(...)
 func (wrap *GormWrap[MOD, CLS]) Unscoped() *GormWrap[MOD, CLS] {
-	return NewGormWrap[MOD, CLS](wrap.db.Unscoped(), (*MOD)(nil), wrap.cls)
+	return NewGormWrap[MOD, CLS](wrap.db.Unscoped().Session(&gorm.Session{}), (*MOD)(nil), wrap.cls)
 }
 
 // Clauses adds clauses to the database and returns a new GormWrap
@@ -204,16 +208,16 @@ func (wrap *GormWrap[MOD, CLS]) Unscoped() *GormWrap[MOD, CLS] {
 // 通过方法链支持 upsert 和其他基于子句的操作
 // 示例：wrap.Clauses(clause.OnConflict{...}).Create(&record)
 func (wrap *GormWrap[MOD, CLS]) Clauses(clauses ...clause.Expression) *GormWrap[MOD, CLS] {
-	return NewGormWrap[MOD, CLS](wrap.db.Clauses(clauses...), (*MOD)(nil), wrap.cls)
+	return NewGormWrap[MOD, CLS](wrap.db.Clauses(clauses...).Session(&gorm.Session{}), (*MOD)(nil), wrap.cls)
 }
 
 // Clause adds a clause built from column definitions and returns a new GormWrap
 // Enables type-safe clause construction using column names
-// Example: wrap.Clause(func(cls) clause.Expression { return clause.OnConflict{Columns: []clause.Column{{Name: string(cls.ID.Name())}}} }).Create(&record)
+// Example: wrap.Clause(func(cls) clause.Expression { return clause.OnConflict{Columns: []clause.Column{{Name: cls.ID.Name()}}} }).Create(&record)
 //
 // Clause 使用列定义构建子句并返回新的 GormWrap
 // 支持使用列名进行类型安全的子句构建
-// 示例：wrap.Clause(func(cls) clause.Expression { return clause.OnConflict{Columns: []clause.Column{{Name: string(cls.ID.Name())}}} }).Create(&record)
+// 示例：wrap.Clause(func(cls) clause.Expression { return clause.OnConflict{Columns: []clause.Column{{Name: cls.ID.Name()}}} }).Create(&record)
 func (wrap *GormWrap[MOD, CLS]) Clause(clauseFunc func(cls CLS) clause.Expression) *GormWrap[MOD, CLS] {
 	return wrap.Clauses(clauseFunc(wrap.cls))
 }

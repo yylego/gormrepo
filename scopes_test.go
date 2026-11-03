@@ -7,30 +7,31 @@ import (
 	"github.com/yylego/gormcnm"
 	"github.com/yylego/gormrepo"
 	"github.com/yylego/gormrepo/gormclass"
+	"github.com/yylego/gormrepo/internal/models"
 	"github.com/yylego/gormrepo/internal/tests"
 	"github.com/yylego/neatjson/neatjsons"
 	"github.com/yylego/rese"
 	"gorm.io/gorm"
 )
 
-// TestRepo_NewScope tests NewScope via matching Accounts via username
-// TestRepo_NewScope 测试通过用户名匹配 Account 的 NewScope 方法
-func TestRepo_NewScope(t *testing.T) {
+// TestBaseRepo_NewScope tests NewScope via matching Accounts via username
+// TestBaseRepo_NewScope 测试通过用户名匹配 Account 的 NewScope 方法
+func TestBaseRepo_NewScope(t *testing.T) {
 	db := tests.NewMemDB(t)
 	defer rese.F0(rese.P1(db.DB()).Close)
-	setupDemoData(t, db)
+	createDemoAccounts(t, db)
 
-	repo := gormrepo.NewBaseRepo(gormclass.Use(&Account{})) // Init repo with Account // 使用 Account 初始化仓储
+	repo := gormrepo.NewBaseRepo(gormclass.Use(&models.Account{})) // Init repo with Account // 使用 Account 初始化仓储
 
 	// Create scope to match via username="demo-1-username"
 	// 创建 scope 通过 username="demo-1-username" 匹配
-	scope := repo.NewScope(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+	scope := repo.NewScope(func(db *gorm.DB, cls *models.AccountColumns) *gorm.DB {
 		return db.Where(cls.Username.Eq("demo-1-username"))
 	})
 
 	// Query first matching Account
 	// 查询第一个匹配的 Account
-	var account Account
+	var account models.Account
 	err := db.Scopes(scope).First(&account).Error
 	require.NoError(t, err) // Check no error // 检查无错误
 
@@ -39,24 +40,66 @@ func TestRepo_NewScope(t *testing.T) {
 	require.Equal(t, "demo-1-nickname", account.Nickname) // Check nickname // 检查昵称
 }
 
-// TestRepo_Paginate tests new-paginate-scope with sorting and pagination
-// TestRepo_Paginate 测试带排序和分页的 new-paginate-scope
-func TestRepo_Paginate(t *testing.T) {
+// TestBaseRepo_NewOrderingScope tests NewOrderingScope via sorting Accounts on username (desc)
+// TestBaseRepo_NewOrderingScope 测试按 username 倒序排列 Account 的 NewOrderingScope 方法
+func TestBaseRepo_NewOrderingScope(t *testing.T) {
 	db := tests.NewMemDB(t)
 	defer rese.F0(rese.P1(db.DB()).Close)
-	setupDemoData(t, db)
+	createDemoAccounts(t, db)
 
-	repo := gormrepo.NewBaseRepo(gormclass.Use(&Account{})) // Init repo with Account // 使用 Account 初始化仓储
+	repo := gormrepo.NewBaseRepo(gormclass.Use(&models.Account{})) // Init repo with Account // 使用 Account 初始化仓储
+
+	orderingScope := repo.NewOrderingScope(func(cls *models.AccountColumns) gormcnm.Ordering {
+		return cls.Username.Ob("desc")
+	})
+
+	var accounts []*models.Account
+	err := db.Scopes(orderingScope).Find(&accounts).Error
+	require.NoError(t, err) // Check no error // 检查无错误
+
+	t.Log(neatjsons.S(accounts)) // Log results // 打印结果
+
+	require.Len(t, accounts, 2)
+	require.Equal(t, "demo-2-username", accounts[0].Username) // Created second, comes first // 后创建的排在前面
+	require.Equal(t, "demo-1-username", accounts[1].Username)
+}
+
+// TestPagination_Scope tests Pagination.Scope, which adds LIMIT and OFFSET to a find
+// TestPagination_Scope 测试 Pagination.Scope，它给查询加上 LIMIT 和 OFFSET
+func TestPagination_Scope(t *testing.T) {
+	db := tests.NewMemDB(t)
+	defer rese.F0(rese.P1(db.DB()).Close)
+	createDemoAccounts(t, db)
+
+	cls := gormclass.Cls(&models.Account{})
+	page := &gormrepo.Pagination{Limit: 1, Offset: 1}
+
+	var accounts []*models.Account
+	err := db.Order(cls.ID.Asc()).Scopes(page.Scope()).Find(&accounts).Error
+	require.NoError(t, err) // Check no error // 检查无错误
+
+	require.Len(t, accounts, 1)
+	require.Equal(t, "demo-2-username", accounts[0].Username) // Offset 1 skips demo-1 // Offset 1 跳过 demo-1
+}
+
+// TestBaseRepo_NewPaginateScope tests NewPaginateScope with sorting and pagination
+// TestBaseRepo_NewPaginateScope 测试带排序和分页的 NewPaginateScope 方法
+func TestBaseRepo_NewPaginateScope(t *testing.T) {
+	db := tests.NewMemDB(t)
+	defer rese.F0(rese.P1(db.DB()).Close)
+	createDemoAccounts(t, db)
+
+	repo := gormrepo.NewBaseRepo(gormclass.Use(&models.Account{})) // Init repo with Account // 使用 Account 初始化仓储
 
 	// Create scope to match via username in ("demo-1-username", "demo-2-username")
 	// 创建 scope 通过 username 在 ("demo-1-username", "demo-2-username") 中匹配
-	condScope := repo.NewScope(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+	condScope := repo.NewScope(func(db *gorm.DB, cls *models.AccountColumns) *gorm.DB {
 		return db.Where(cls.Username.In([]string{"demo-1-username", "demo-2-username"}))
 	})
 
 	// Create scope to sort via username (desc) nickname (asc) with limit=10, offset=0
 	// 创建 scope 按 username (desc) nickname (asc) 排序，limit=10, offset=0
-	pageScope := repo.NewPaginateScope(func(cls *AccountColumns) gormcnm.Ordering {
+	pageScope := repo.NewPaginateScope(func(cls *models.AccountColumns) gormcnm.Ordering {
 		return cls.Username.Ob("desc").Ob(cls.Nickname.Ob("asc"))
 	}, &gormrepo.Pagination{
 		Limit:  10,
@@ -65,7 +108,7 @@ func TestRepo_Paginate(t *testing.T) {
 
 	// Query Accounts with pagination
 	// 带分页查询 Accounts
-	var accounts []*Account
+	var accounts []*models.Account
 	err := db.Scopes(condScope, pageScope).Find(&accounts).Error
 	require.NoError(t, err) // Check no error // 检查无错误
 

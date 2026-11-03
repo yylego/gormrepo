@@ -1,6 +1,7 @@
 package gormrepo
 
 import (
+	"github.com/pkg/errors"
 	"github.com/yylego/gormcnm"
 	"gorm.io/gorm"
 )
@@ -25,23 +26,12 @@ func (repo *BaseRepo[MOD, CLS]) NewScope(where func(db *gorm.DB, cls CLS) *gorm.
 	}
 }
 
-// NewWhereScope creates a GORM scope function that applies a custom where condition
-// Alias to NewScope, providing a more explicit name when scoping where clauses
-//
-// NewWhereScope 创建应用自定义 where 条件的 GORM scope 函数
-// 是 NewScope 的别名，在设置 where 子句作用域时提供更明确的名称
-func (repo *BaseRepo[MOD, CLS]) NewWhereScope(where func(db *gorm.DB, cls CLS) *gorm.DB) ScopeFunction {
-	return func(db *gorm.DB) *gorm.DB {
-		return where(db, repo.cls)
-	}
-}
-
-// NewOrderScope creates a GORM scope function that applies an ordering condition
+// NewOrderingScope creates a GORM scope function that applies an ordering condition
 // Returns a ScopeFunction that can be used with db.Scopes() to set the ordering
 //
-// NewOrderScope 创建应用排序条件的 GORM scope 函数
+// NewOrderingScope 创建应用排序条件的 GORM scope 函数
 // 返回可与 db.Scopes() 配合使用以设置排序的 ScopeFunction
-func (repo *BaseRepo[MOD, CLS]) NewOrderScope(ordering func(cls CLS) gormcnm.Ordering) ScopeFunction {
+func (repo *BaseRepo[MOD, CLS]) NewOrderingScope(ordering func(cls CLS) gormcnm.Ordering) ScopeFunction {
 	return func(db *gorm.DB) *gorm.DB {
 		return db.Order(ordering(repo.cls).Ox())
 	}
@@ -55,6 +45,21 @@ func (repo *BaseRepo[MOD, CLS]) NewOrderScope(ordering func(cls CLS) gormcnm.Ord
 type Pagination struct {
 	Limit  int // Max records to retrieve // 最大检索记录数
 	Offset int // Records to skip // 跳过的记录数
+}
+
+// validate returns an error on a nil Pagination, and on Limit 0, which GORM turns into LIMIT 0 and gives no rows
+// Limit -1 is fine, GORM takes it as no limit
+//
+// validate 在 Pagination 为 nil，或 Limit 为 0 时返回错误：GORM 会把 0 变成 LIMIT 0，什么都查不到
+// Limit 为 -1 是合法的，GORM 当作不限条数
+func (p *Pagination) validate() error {
+	if p == nil {
+		return errors.New("pagination is nil")
+	}
+	if p.Limit == 0 {
+		return errors.New("pagination limit is 0, which gives no rows, use -1 to get each row")
+	}
+	return nil
 }
 
 // Scope creates a GORM scope function that applies pagination parameters

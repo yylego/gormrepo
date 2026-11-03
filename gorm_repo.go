@@ -1,18 +1,20 @@
 package gormrepo
 
 import (
+	"github.com/pkg/errors"
 	"github.com/yylego/gormcnm"
+	"github.com/yylego/gormrepo/gormclass"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
-// GormRepo is the main repo struct with database connection and column definitions
-// Provides CRUD operations with (T, error) return signatures
-// All methods accept type-safe where functions using column definitions
+// GormRepo is the main repo built on GormWrap, each method returns (T, error) in place of *gorm.DB
+// Beyond the GORM methods it adds the extras GORM does not give, e.g. FindO / FindC / Exist / ScanOne / ScanList
+// New conveniences go here, and GormWrap stays as the plain GORM counterpart
 //
-// GormRepo 是带有数据库连接和列定义的主仓储结构体
-// 提供返回 (T, error) 签名的 CRUD 操作
-// 所有方法接受使用列定义的类型安全 where 函数
+// GormRepo 是建在 GormWrap 之上的主仓储，每个方法返回 (结果, error)，不返回 *gorm.DB
+// 在 GORM 官方方法之外，加上 GORM 没有的便利，如 FindO / FindC / Exist / ScanOne / ScanList
+// 新的便利都加在这里，GormWrap 只保持跟 GORM 官方一一对应
 type GormRepo[MOD any, CLS any] struct {
 	db  *gorm.DB // Database connection // 数据库连接
 	cls CLS      // Column definitions // 列定义
@@ -91,6 +93,17 @@ func (repo *GormRepo[MOD, CLS]) Find(where func(db *gorm.DB, cls CLS) *gorm.DB) 
 	return results, nil
 }
 
+// FindAll retrieves each record of the MOD table, with no condition
+// Saves passing a where function that returns db unchanged
+//
+// FindAll 检索 MOD 表的全部记录，不带条件
+// 省去传一个原样返回 db 的 where 函数
+func (repo *GormRepo[MOD, CLS]) FindAll() ([]*MOD, error) {
+	return repo.Find(func(db *gorm.DB, cls CLS) *gorm.DB {
+		return db
+	})
+}
+
 // FindO retrieves records matching the where condition with ordering
 // O = Ordering, returns all matching records in specified sequence
 //
@@ -106,67 +119,30 @@ func (repo *GormRepo[MOD, CLS]) FindO(where func(db *gorm.DB, cls CLS) *gorm.DB,
 	return results, nil
 }
 
-// FindN retrieves records matching the where condition with size limit
-// Returns up to size records
+// FindN retrieves the first size records matching the where condition, in the given ordering
+// The ordering is a required param: without ORDER BY the first N records come in no fixed sequence
 //
-// FindN 检索有限数量的符合 where 条件的记录
-// 最多返回 size 条记录
-func (repo *GormRepo[MOD, CLS]) FindN(where func(db *gorm.DB, cls CLS) *gorm.DB, size int) ([]*MOD, error) {
+// FindN 按指定排序检索符合 where 条件的前 size 条记录
+// 排序是必填参数：不排序的话，"前 N 条"是哪几条数据库不保证
+func (repo *GormRepo[MOD, CLS]) FindN(where func(db *gorm.DB, cls CLS) *gorm.DB, ordering func(cls CLS) gormcnm.Ordering, size int) ([]*MOD, error) {
 	var results []*MOD
-	if err := where(repo.db, repo.cls).Limit(size).Find(&results).Error; err != nil {
+	if err := where(repo.db, repo.cls).Order(ordering(repo.cls).Ox()).Limit(size).Find(&results).Error; err != nil {
 		return nil, err
 	}
 	return results, nil
 }
 
-// FindC retrieves records with custom paging and returns total count
-// Executes two queries: one with paging, one without to get total count
-//
-// FindC 使用自定义分页检索记录并返回总数
-// 执行两个查询：一个带分页，一个不带以获取总数
-func (repo *GormRepo[MOD, CLS]) FindC(where func(db *gorm.DB, cls CLS) *gorm.DB, paging func(db *gorm.DB, cls CLS) *gorm.DB) ([]*MOD, int64, error) {
-	var results []*MOD
-	{
-		db := where(repo.db, repo.cls)
-		db = paging(db, repo.cls)
-		if err := db.Find(&results).Error; err != nil {
-			return nil, 0, err
-		}
-	}
-	var count int64
-	{
-		db := repo.db.Model((*MOD)(nil))
-		if err := where(db, repo.cls).Count(&count).Error; err != nil {
-			return nil, 0, err
-		}
-	}
-	return results, count, nil
-}
-
-// FindPageAndCount retrieves paginated records with ordering and returns total count
-// Combines pagination with count query in single method call
-//
-// FindPageAndCount 使用排序检索分页记录并返回总数
-// 在单个方法调用中组合分页和计数查询
-func (repo *GormRepo[MOD, CLS]) FindPageAndCount(where func(db *gorm.DB, cls CLS) *gorm.DB, ordering func(cls CLS) gormcnm.Ordering, page *Pagination) ([]*MOD, int64, error) {
-	results, err := repo.FindPage(where, ordering, page)
-	if err != nil {
-		return nil, 0, err
-	}
-	db := repo.db.Model((*MOD)(nil))
-	var count int64
-	if err := where(db, repo.cls).Count(&count).Error; err != nil {
-		return nil, 0, err
-	}
-	return results, count, nil
-}
-
 // FindPage retrieves paginated records with ordering
-// Uses Pagination struct to specify offset and limit
+// Uses Pagination struct to give the offset and the limit
+// The ordering is a required param: paging without ORDER BY can give repeats and gaps across pages
 //
 // FindPage 使用排序检索分页记录
 // 使用 Pagination 结构体指定偏移和限制
+// 排序是必填参数：不排序就分页，翻页时数据可能重复或漏掉
 func (repo *GormRepo[MOD, CLS]) FindPage(where func(db *gorm.DB, cls CLS) *gorm.DB, ordering func(cls CLS) gormcnm.Ordering, page *Pagination) ([]*MOD, error) {
+	if err := page.validate(); err != nil {
+		return nil, err
+	}
 	db := where(repo.db, repo.cls)
 	db = db.Order(ordering(repo.cls).Ox())
 	db = db.Limit(page.Limit).Offset(page.Offset)
@@ -175,6 +151,44 @@ func (repo *GormRepo[MOD, CLS]) FindPage(where func(db *gorm.DB, cls CLS) *gorm.
 		return nil, err
 	}
 	return results, nil
+}
+
+// FindPageAndCount retrieves paginated records with ordering and returns total count
+// Same as FindC with the Pagination as the paging callback, the ordering is required as in FindPage
+//
+// FindPageAndCount 使用排序检索分页记录并返回总数
+// 等同于 FindC，分页回调用 Pagination；排序跟 FindPage 一样是必填参数
+func (repo *GormRepo[MOD, CLS]) FindPageAndCount(where func(db *gorm.DB, cls CLS) *gorm.DB, ordering func(cls CLS) gormcnm.Ordering, page *Pagination) ([]*MOD, int64, error) {
+	if err := page.validate(); err != nil {
+		return nil, 0, err
+	}
+	return repo.FindC(where, ordering, func(db *gorm.DB, cls CLS) *gorm.DB {
+		return db.Limit(page.Limit).Offset(page.Offset)
+	})
+}
+
+// FindC retrieves the page records and the count of matching records across pages
+// The ordering is a required param, and the paging callback gets the *gorm.DB with the where and the ordering on it, then adds Limit/Offset
+// Use FindPageAndCount on plain paging; FindC fits paging that needs code, e.g. paging just when a page index is given
+// The where and the paging build one chain: the page uses it as is, and the count cancels LIMIT/OFFSET on it (GORM drops ORDER BY when counting),
+// so the two callbacks give the same result regardless of sequence; GROUP BY in them turns the count into a group count
+//
+// FindC 检索当前页记录，并返回去掉分页后符合条件的总数
+// 排序是必填参数，分页回调拿到的是已经带上 where 和排序的 *gorm.DB，在上面加 Limit/Offset
+// 普通分页用 FindPageAndCount；分页部分要写逻辑时用 FindC，例如只有传了页码才分页
+// where 和分页回调先拼成同一个查询：查当前页直接用它，查总数时在它上面撤掉 LIMIT/OFFSET（ORDER BY 由 GORM 计数时自动去掉），
+// 所以两个回调谁先谁后结果都一样；回调里带 GROUP BY 时，总数会变成分组数
+func (repo *GormRepo[MOD, CLS]) FindC(where func(db *gorm.DB, cls CLS) *gorm.DB, ordering func(cls CLS) gormcnm.Ordering, paging func(db *gorm.DB, cls CLS) *gorm.DB) ([]*MOD, int64, error) {
+	db := paging(where(repo.db.Model((*MOD)(nil)), repo.cls).Order(ordering(repo.cls).Ox()), repo.cls).Session(&gorm.Session{})
+	var results []*MOD
+	if err := db.Find(&results).Error; err != nil {
+		return nil, 0, err
+	}
+	var count int64
+	if err := db.Limit(-1).Offset(-1).Count(&count).Error; err != nil {
+		return nil, 0, err
+	}
+	return results, count, nil
 }
 
 // Count returns the number of records matching the where condition
@@ -202,10 +216,10 @@ func (repo *GormRepo[MOD, CLS]) Pluck[T any](where func(db *gorm.DB, cls CLS) *g
 }
 
 // Scan selects from the MOD table and scans rows into a result struct T
-// Fits Select / Joins / Group queries whose rows do not match MOD, e.g. repo.Scan[AccountBrief](where)
+// Fits Select / Joins / Group queries whose rows do not match MOD, e.g. repo.Scan[AccountInfo](where)
 //
 // Scan 在 MOD 对应的表上查询，并把结果行扫描到结构体 T
-// 适合 Select / Joins / Group 等结果行与 MOD 不一致的查询，例如 repo.Scan[AccountBrief](where)
+// 适合 Select / Joins / Group 等结果行与 MOD 不一致的查询，例如 repo.Scan[AccountInfo](where)
 func (repo *GormRepo[MOD, CLS]) Scan[T any](where func(db *gorm.DB, cls CLS) *gorm.DB) ([]T, error) {
 	var results []T
 	// Rows() 在没有 Dest 时把 Model 当 Dest 用，nil 指针会报 ErrInvalidValue，因此用 new(MOD)
@@ -215,25 +229,72 @@ func (repo *GormRepo[MOD, CLS]) Scan[T any](where func(db *gorm.DB, cls CLS) *go
 	return results, nil
 }
 
+// ScanList scans result rows and also passes the RES columns to the callback.
+// RES needs column definitions; use AsName with result columns to get type-checked aliases.
+//
+// ScanList 扫描结果列表，并把 RES 的列定义传给回调。
+// RES 需要列定义；通过 AsName 引用结果列时，别名具有类型检查。
+func (repo *GormRepo[MOD, CLS]) ScanList[RES any, PRES interface {
+	*RES
+	gormclass.ColumnsInterface[CLSR]
+}, CLSR any](where func(db *gorm.DB, cls CLS, res CLSR) *gorm.DB) ([]RES, error) {
+	return repo.Scan[RES](func(db *gorm.DB, cls CLS) *gorm.DB {
+		return where(db, cls, PRES(new(RES)).Columns())
+	})
+}
+
+// ScanItem scans just one result row and passes the RES columns to the callback.
+// As in ScanList, RES needs column definitions. Zero rows and two rows and up both return an error.
+//
+// ScanItem 扫描恰好一条结果，并把 RES 的列定义传给回调。
+// 与 ScanList 一样，RES 需要列定义。零行或多行均返回错误。
+func (repo *GormRepo[MOD, CLS]) ScanItem[RES any, PRES interface {
+	*RES
+	gormclass.ColumnsInterface[CLSR]
+}, CLSR any](where func(db *gorm.DB, cls CLS, res CLSR) *gorm.DB) (RES, error) {
+	return repo.ScanOne[RES](func(db *gorm.DB, cls CLS) *gorm.DB {
+		return where(db, cls, PRES(new(RES)).Columns())
+	})
+}
+
+// ScanOne selects one value, such as an aggregate, from the MOD table and returns it
+// Fails when the select gives no row, and fails on two rows and up, so a missing value does not come back as a silent zero
+// Example: repo.ScanOne[int](func(db, cls) *gorm.DB { return db.Select(cls.Age.COALESCE().Max()) })
+//
+// ScanOne 在 MOD 对应的表上查询一个值（如聚合结果）并返回
+// 查不到行、或查出多行时都报错，查不到的值不会悄悄变成零值
+// 示例：repo.ScanOne[int](func(db, cls) *gorm.DB { return db.Select(cls.Age.COALESCE().Max()) })
+func (repo *GormRepo[MOD, CLS]) ScanOne[T any](where func(db *gorm.DB, cls CLS) *gorm.DB) (T, error) {
+	var zero T
+	results, err := repo.Scan[T](where)
+	if err != nil {
+		return zero, err
+	}
+	if len(results) != 1 {
+		return zero, errors.Errorf("scan one: got %d rows, want 1", len(results))
+	}
+	return results[0], nil
+}
+
 // Update updates a single column for records matching the where condition
-// Uses valueFunc to specify column name and value
+// Uses newValue to give the column name and the value
 //
 // Update 更新符合 where 条件的记录的单个列
-// 使用 valueFunc 指定列名和值
-func (repo *GormRepo[MOD, CLS]) Update(where func(db *gorm.DB, cls CLS) *gorm.DB, valueFunc func(cls CLS) (string, any)) error {
-	if err := repo.Gorm().Update(where, valueFunc).Error; err != nil {
+// 使用 newValue 指定列名和值
+func (repo *GormRepo[MOD, CLS]) Update(where func(db *gorm.DB, cls CLS) *gorm.DB, newValue func(cls CLS) (string, any)) error {
+	if err := repo.Gorm().Update(where, newValue).Error; err != nil {
 		return err
 	}
 	return nil
 }
 
 // Updates updates multiple columns for records matching the where condition
-// Uses mapValues to specify column-value pairs
+// Uses newValues to give the column-value pairs
 //
 // Updates 更新符合 where 条件的记录的多个列
-// 使用 mapValues 指定列值对
-func (repo *GormRepo[MOD, CLS]) Updates(where func(db *gorm.DB, cls CLS) *gorm.DB, mapValues func(cls CLS) map[string]any) error {
-	if err := repo.Gorm().Updates(where, mapValues).Error; err != nil {
+// 使用 newValues 指定列值对
+func (repo *GormRepo[MOD, CLS]) Updates(where func(db *gorm.DB, cls CLS) *gorm.DB, newValues func(cls CLS) map[string]any) error {
+	if err := repo.Gorm().Updates(where, newValues).Error; err != nil {
 		return err
 	}
 	return nil
@@ -279,8 +340,8 @@ func (repo *GormRepo[MOD, CLS]) UpdatesC(object *MOD, where func(db *gorm.DB, cl
 //
 // Invoke 使用数据库连接和列定义执行自定义操作
 // 返回自定义操作产生的错误
-func (repo *GormRepo[MOD, CLS]) Invoke(clsRun func(db *gorm.DB, cls CLS) *gorm.DB) error {
-	if err := clsRun(repo.db, repo.cls).Error; err != nil {
+func (repo *GormRepo[MOD, CLS]) Invoke(run func(db *gorm.DB, cls CLS) *gorm.DB) error {
+	if err := run(repo.db, repo.cls).Error; err != nil {
 		return err
 	}
 	return nil
@@ -390,7 +451,7 @@ func (repo *GormRepo[MOD, CLS]) DeleteM(one *MOD, where func(db *gorm.DB, cls CL
 // Unscoped 禁用软删除作用域并返回新的 GormRepo
 // 通过方法链实现永久删除：repo.Unscoped().DeleteW(...)
 func (repo *GormRepo[MOD, CLS]) Unscoped() *GormRepo[MOD, CLS] {
-	return NewGormRepo[MOD, CLS](repo.db.Unscoped(), (*MOD)(nil), repo.cls)
+	return NewGormRepo[MOD, CLS](repo.db.Unscoped().Session(&gorm.Session{}), (*MOD)(nil), repo.cls)
 }
 
 // Clauses adds clauses to the database and returns a new GormRepo
@@ -401,16 +462,16 @@ func (repo *GormRepo[MOD, CLS]) Unscoped() *GormRepo[MOD, CLS] {
 // 通过方法链支持 upsert 和其他基于子句的操作
 // 示例：repo.Clauses(clause.OnConflict{...}).Create(&record)
 func (repo *GormRepo[MOD, CLS]) Clauses(clauses ...clause.Expression) *GormRepo[MOD, CLS] {
-	return NewGormRepo[MOD, CLS](repo.db.Clauses(clauses...), (*MOD)(nil), repo.cls)
+	return NewGormRepo[MOD, CLS](repo.db.Clauses(clauses...).Session(&gorm.Session{}), (*MOD)(nil), repo.cls)
 }
 
 // Clause adds a clause built from column definitions and returns a new GormRepo
 // Enables type-safe clause construction using column names
-// Example: repo.Clause(func(cls) clause.Expression { return clause.OnConflict{Columns: []clause.Column{{Name: string(cls.ID.Name())}}} }).Create(&record)
+// Example: repo.Clause(func(cls) clause.Expression { return clause.OnConflict{Columns: []clause.Column{{Name: cls.ID.Name()}}} }).Create(&record)
 //
 // Clause 使用列定义构建子句并返回新的 GormRepo
 // 支持使用列名进行类型安全的子句构建
-// 示例：repo.Clause(func(cls) clause.Expression { return clause.OnConflict{Columns: []clause.Column{{Name: string(cls.ID.Name())}}} }).Create(&record)
+// 示例：repo.Clause(func(cls) clause.Expression { return clause.OnConflict{Columns: []clause.Column{{Name: cls.ID.Name()}}} }).Create(&record)
 func (repo *GormRepo[MOD, CLS]) Clause(clauseFunc func(cls CLS) clause.Expression) *GormRepo[MOD, CLS] {
 	return repo.Clauses(clauseFunc(repo.cls))
 }

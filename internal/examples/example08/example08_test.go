@@ -1,14 +1,21 @@
+// Package example08_test shows using the repos in a GORM transaction
+// Pass the tx to With, then each repo works in the transaction, and an error rolls back each change
+//
+// example08_test 演示在 GORM 事务里使用 repo
+// 把 tx 传给 With，各个 repo 就在事务里工作，出错时所有改动一起回滚
 package example08_test
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 	"github.com/yylego/done"
-	"github.com/yylego/gormcnm"
 	"github.com/yylego/gormrepo"
+	"github.com/yylego/gormrepo/gormclass"
 	"github.com/yylego/gormrepo/internal/examples/example08/internal/models"
 	"github.com/yylego/rese"
 	"gorm.io/driver/sqlite"
@@ -16,350 +23,85 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-var testDB *gorm.DB
+var (
+	courseRepo     = gormrepo.NewRepo(gormclass.Use(&models.Course{}))
+	enrollmentRepo = gormrepo.NewRepo(gormclass.Use(&models.Enrollment{}))
+)
 
-func TestMain(m *testing.M) {
+// newCaseDB opens a new database in each test, with one course that takes 1 student
+// newCaseDB 给每个测试开一个新库，里面有一门容量为 1 的课
+func newCaseDB(t *testing.T) *gorm.DB {
 	dsn := fmt.Sprintf("file:db-%s?mode=memory&cache=shared", uuid.New().String())
 	db := rese.P1(gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Info),
 	}))
-	defer rese.F0(rese.P1(db.DB()).Close)
+	t.Cleanup(func() { rese.F0(rese.P1(db.DB()).Close) })
 
-	done.Done(db.AutoMigrate(&models.Post{}))
+	done.Done(db.AutoMigrate(&models.Course{}, &models.Enrollment{}))
+	done.Done(db.Create(&models.Course{Name: "math", Seats: 1}).Error)
+	return db
+}
 
-	// 插入大量测试帖子数据
-	posts := make([]*models.Post, 0, 25)
-	categories := []string{"tech", "life", "travel", "food", "sports"}
-	authors := []uint{1, 2, 3, 4, 5}
-
-	for i := 1; i <= 25; i++ {
-		post := &models.Post{
-			Title:     fmt.Sprintf("Post Title %02d", i),
-			Content:   fmt.Sprintf("This is the content of post %d", i),
-			AuthorID:  authors[i%len(authors)],
-			Category:  categories[i%len(categories)],
-			Tags:      fmt.Sprintf("tag%d,common", i%3+1),
-			ViewCount: i * 10,
-			LikeCount: i * 2,
-			Status:    "published",
+// admitStudent writes an enrollment and adds 1 to the enrolled count in one transaction, it fails when the course has no seat left
+// admitStudent 在一个事务里写选课记录并给已选人数加 1，课程满员时失败
+func admitStudent(ctx context.Context, db *gorm.DB, courseName string, studentName string) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		course, err := courseRepo.With(ctx, tx).First(func(db *gorm.DB, cls *models.CourseColumns) *gorm.DB {
+			return db.Where(cls.Name.Eq(courseName))
+		})
+		if err != nil {
+			return err
 		}
-		if i > 20 {
-			post.Status = "draft"
+
+		if err := enrollmentRepo.With(ctx, tx).Create(&models.Enrollment{CourseID: course.ID, StudentName: studentName}); err != nil {
+			return err
 		}
-		posts = append(posts, post)
-	}
 
-	for _, post := range posts {
-		done.Done(db.Create(post).Error)
-	}
-
-	testDB = db
-	m.Run()
-}
-
-// TestBasicPagination 演示基础分页查询
-func TestBasicPagination(t *testing.T) {
-	repo := gormrepo.NewGormRepo(gormrepo.Use(testDB, &models.Post{}))
-
-	// 1. 第一页数据 (每页5条)
-	page1, err := repo.FindPage(
-		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
-			return db.Where(cls.Status.Eq("published"))
-		},
-		func(cls *models.PostColumns) gormcnm.Ordering {
-			return cls.ID.Ob("asc")
-		},
-		&gormrepo.Pagination{Offset: 0, Limit: 5},
-	)
-	require.NoError(t, err)
-	require.Len(t, page1, 5)
-	require.Equal(t, "Post Title 01", page1[0].Title)
-	require.Equal(t, "Post Title 05", page1[4].Title)
-	t.Logf("Page 1: %d posts", len(page1))
-
-	// 2. 第二页数据
-	page2, err := repo.FindPage(
-		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
-			return db.Where(cls.Status.Eq("published"))
-		},
-		func(cls *models.PostColumns) gormcnm.Ordering {
-			return cls.ID.Ob("asc")
-		},
-		&gormrepo.Pagination{Offset: 5, Limit: 5},
-	)
-	require.NoError(t, err)
-	require.Len(t, page2, 5)
-	require.Equal(t, "Post Title 06", page2[0].Title)
-	require.Equal(t, "Post Title 10", page2[4].Title)
-	t.Logf("Page 2: %d posts", len(page2))
-
-	// 3. 最后一页数据
-	lastPage, err := repo.FindPage(
-		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
-			return db.Where(cls.Status.Eq("published"))
-		},
-		func(cls *models.PostColumns) gormcnm.Ordering {
-			return cls.ID.Ob("asc")
-		},
-		&gormrepo.Pagination{Offset: 15, Limit: 5},
-	)
-	require.NoError(t, err)
-	require.Len(t, lastPage, 5)
-	t.Logf("Last page: %d posts", len(lastPage))
-}
-
-// TestPaginationWithCount 演示带总数的分页查询
-func TestPaginationWithCount(t *testing.T) {
-	repo := gormrepo.NewGormRepo(gormrepo.Use(testDB, &models.Post{}))
-
-	// 1. 分页查询并获取总数
-	posts, totalCount, err := repo.FindPageAndCount(
-		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
-			return db.Where(cls.Status.Eq("published"))
-		},
-		func(cls *models.PostColumns) gormcnm.Ordering {
-			return cls.ID.Ob("desc")
-		},
-		&gormrepo.Pagination{Offset: 0, Limit: 10},
-	)
-	require.NoError(t, err)
-	require.Len(t, posts, 10)
-	require.Equal(t, int64(20), totalCount) // 应该有20条已发布的帖子
-
-	t.Logf("Found %d posts, total: %d", len(posts), totalCount)
-	t.Logf("First post: %s", posts[0].Title)
-	t.Logf("Last post: %s", posts[9].Title)
-
-	// 2. 计算分页信息
-	pageSize := 10
-	totalPages := (totalCount + int64(pageSize) - 1) / int64(pageSize)
-	currentPage := 1
-	hasNextPage := currentPage < int(totalPages)
-	hasPrevPage := currentPage > 1
-
-	t.Logf("Pagination info:")
-	t.Logf("  Current page: %d", currentPage)
-	t.Logf("  Total pages: %d", totalPages)
-	t.Logf("  Has next page: %v", hasNextPage)
-	t.Logf("  Has prev page: %v", hasPrevPage)
-
-	require.Equal(t, int64(2), totalPages)
-	require.True(t, hasNextPage)
-	require.False(t, hasPrevPage)
-}
-
-// TestFilteredPagination 演示带条件过滤的分页查询
-func TestFilteredPagination(t *testing.T) {
-	repo := gormrepo.NewGormRepo(gormrepo.Use(testDB, &models.Post{}))
-
-	// 1. 按分类分页查询
-	techPosts, techCount, err := repo.FindPageAndCount(
-		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
-			return db.Where(cls.Category.Eq("tech")).Where(cls.Status.Eq("published"))
-		},
-		func(cls *models.PostColumns) gormcnm.Ordering {
-			return cls.ViewCount.Ob("desc")
-		},
-		&gormrepo.Pagination{Offset: 0, Limit: 3},
-	)
-	require.NoError(t, err)
-	require.Greater(t, len(techPosts), 0)
-	t.Logf("Tech posts: %d, total: %d", len(techPosts), techCount)
-
-	// 2. 按作者分页查询
-	authorPosts, authorCount, err := repo.FindPageAndCount(
-		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
-			return db.Where(cls.AuthorID.Eq(1)).Where(cls.Status.Eq("published"))
-		},
-		func(cls *models.PostColumns) gormcnm.Ordering {
-			return cls.LikeCount.Ob("desc")
-		},
-		&gormrepo.Pagination{Offset: 0, Limit: 5},
-	)
-	require.NoError(t, err)
-	require.Greater(t, len(authorPosts), 0)
-	t.Logf("Author 1 posts: %d, total: %d", len(authorPosts), authorCount)
-
-	// 3. 按浏览量范围分页查询
-	popularPosts, popularCount, err := repo.FindPageAndCount(
-		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
-			return db.Where(cls.ViewCount.Gt(100)).Where(cls.Status.Eq("published"))
-		},
-		func(cls *models.PostColumns) gormcnm.Ordering {
-			return cls.ViewCount.Ob("desc")
-		},
-		&gormrepo.Pagination{Offset: 0, Limit: 5},
-	)
-	require.NoError(t, err)
-	require.Greater(t, len(popularPosts), 0)
-	t.Logf("Popular posts (>100 views): %d, total: %d", len(popularPosts), popularCount)
-
-	// 验证排序正确性
-	for i := 1; i < len(popularPosts); i++ {
-		require.GreaterOrEqual(t, popularPosts[i-1].ViewCount, popularPosts[i].ViewCount)
-	}
-}
-
-// TestMultipleSortPagination 演示多字段排序的分页查询
-func TestMultipleSortPagination(t *testing.T) {
-	repo := gormrepo.NewGormRepo(gormrepo.Use(testDB, &models.Post{}))
-
-	// 1. 多字段排序：先按分类，再按浏览量降序
-	posts, count, err := repo.FindPageAndCount(
-		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
-			return db.Where(cls.Status.Eq("published"))
-		},
-		func(cls *models.PostColumns) gormcnm.Ordering {
-			return cls.Category.Ob("asc").Ob(cls.ViewCount.Ob("desc"))
-		},
-		&gormrepo.Pagination{Offset: 0, Limit: 8},
-	)
-	require.NoError(t, err)
-	require.Len(t, posts, 8)
-	require.Greater(t, count, int64(0))
-
-	t.Logf("Multi-sort pagination: %d posts, total: %d", len(posts), count)
-	for i, post := range posts {
-		t.Logf("  %d. [%s] %s (views: %d)", i+1, post.Category, post.Title, post.ViewCount)
-	}
-
-	// 2. 复杂排序：先按点赞数降序，再按ID升序
-	posts2, _, err := repo.FindPageAndCount(
-		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
-			return db.Where(cls.Status.Eq("published"))
-		},
-		func(cls *models.PostColumns) gormcnm.Ordering {
-			return cls.LikeCount.Ob("desc").Ob(cls.ID.Ob("asc"))
-		},
-		&gormrepo.Pagination{Offset: 0, Limit: 5},
-	)
-	require.NoError(t, err)
-	require.Len(t, posts2, 5)
-
-	t.Logf("Like-based sorting:")
-	for i, post := range posts2 {
-		t.Logf("  %d. %s (likes: %d, ID: %d)", i+1, post.Title, post.LikeCount, post.ID)
-	}
-
-	// 验证排序正确性
-	for i := 1; i < len(posts2); i++ {
-		if posts2[i-1].LikeCount == posts2[i].LikeCount {
-			require.Less(t, posts2[i-1].ID, posts2[i].ID)
-		} else {
-			require.Greater(t, posts2[i-1].LikeCount, posts2[i].LikeCount)
+		if err := courseRepo.With(ctx, tx).Update(func(db *gorm.DB, cls *models.CourseColumns) *gorm.DB {
+			return db.Where(cls.ID.Eq(course.ID))
+		}, func(cls *models.CourseColumns) (string, any) {
+			return cls.Enrolled.KeAdd(1)
+		}); err != nil {
+			return err
 		}
-	}
+
+		// The check comes behind the writes on purpose, to show the rollback undoes them
+		// 故意在写完之后才检查，用来演示回滚会撤销前面的写入
+		if course.Enrolled+1 > course.Seats {
+			return errors.Errorf("course %s has no seat left", courseName)
+		}
+		return nil
+	})
 }
 
-// TestPaginationEdgeCases 演示分页查询的边界情况
-func TestPaginationEdgeCases(t *testing.T) {
-	repo := gormrepo.NewGormRepo(gormrepo.Use(testDB, &models.Post{}))
+func TestTransactionCommit(t *testing.T) {
+	db := newCaseDB(t)
+	require.NoError(t, admitStudent(t.Context(), db, "math", "Alice"))
 
-	// 1. 超出范围的分页查询
-	posts, count, err := repo.FindPageAndCount(
-		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
-			return db.Where(cls.Status.Eq("published"))
-		},
-		func(cls *models.PostColumns) gormcnm.Ordering {
-			return cls.ID.Ob("asc")
-		},
-		&gormrepo.Pagination{Offset: 100, Limit: 10}, // 超出数据范围
-	)
+	course, err := courseRepo.With(t.Context(), db).First(func(db *gorm.DB, cls *models.CourseColumns) *gorm.DB {
+		return db.Where(cls.Name.Eq("math"))
+	})
 	require.NoError(t, err)
-	require.Len(t, posts, 0)            // 应该返回空数组
-	require.Greater(t, count, int64(0)) // 但总数应该大于0
-	t.Logf("Out of range pagination: %d posts, total: %d", len(posts), count)
-
-	// 2. 大页面尺寸
-	largePage, _, err := repo.FindPageAndCount(
-		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
-			return db.Where(cls.Status.Eq("published"))
-		},
-		func(cls *models.PostColumns) gormcnm.Ordering {
-			return cls.ID.Ob("asc")
-		},
-		&gormrepo.Pagination{Offset: 0, Limit: 100}, // 大于实际数据量
-	)
-	require.NoError(t, err)
-	require.Equal(t, 20, len(largePage)) // 应该返回所有已发布的帖子
-	t.Logf("Large page size: %d posts returned", len(largePage))
-
-	// 3. 零页面尺寸处理
-	zeroPosts, zeroCount, err := repo.FindPageAndCount(
-		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
-			return db.Where(cls.Status.Eq("published"))
-		},
-		func(cls *models.PostColumns) gormcnm.Ordering {
-			return cls.ID.Ob("asc")
-		},
-		&gormrepo.Pagination{Offset: 0, Limit: 0},
-	)
-	require.NoError(t, err)
-	require.Len(t, zeroPosts, 0)
-	require.Greater(t, zeroCount, int64(0))
-	t.Logf("Zero limit pagination: %d posts, total: %d", len(zeroPosts), zeroCount)
-
-	// 4. 不存在的条件分页
-	nonexistentPosts, nonexistentCount, err := repo.FindPageAndCount(
-		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
-			return db.Where(cls.Category.Eq("nonexistent"))
-		},
-		func(cls *models.PostColumns) gormcnm.Ordering {
-			return cls.ID.Ob("asc")
-		},
-		&gormrepo.Pagination{Offset: 0, Limit: 10},
-	)
-	require.NoError(t, err)
-	require.Len(t, nonexistentPosts, 0)
-	require.Equal(t, int64(0), nonexistentCount)
-	t.Logf("Nonexistent condition: %d posts, total: %d", len(nonexistentPosts), nonexistentCount)
+	require.Equal(t, 1, course.Enrolled)
 }
 
-// TestPaginationPerformance 演示分页查询的性能相关功能
-func TestPaginationPerformance(t *testing.T) {
-	repo := gormrepo.NewGormRepo(gormrepo.Use(testDB, &models.Post{}))
+func TestTransactionRollback(t *testing.T) {
+	db := newCaseDB(t)
+	require.NoError(t, admitStudent(t.Context(), db, "math", "Alice"))
 
-	// 1. 仅获取数据不计算总数（更快）
-	fastPosts, err := repo.FindPage(
-		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
-			return db.Where(cls.Status.Eq("published"))
-		},
-		func(cls *models.PostColumns) gormcnm.Ordering {
-			return cls.ID.Ob("desc")
-		},
-		&gormrepo.Pagination{Offset: 0, Limit: 5},
-	)
+	// The course has no seat left now, the enrollment of Bob and the added count are both rolled back
+	// 课程已满，Bob 的选课记录和加上的人数都被回滚
+	require.ErrorContains(t, admitStudent(t.Context(), db, "math", "Bob"), "has no seat left")
+
+	course, err := courseRepo.With(t.Context(), db).First(func(db *gorm.DB, cls *models.CourseColumns) *gorm.DB {
+		return db.Where(cls.Name.Eq("math"))
+	})
 	require.NoError(t, err)
-	require.Len(t, fastPosts, 5)
-	t.Logf("Fast pagination (no count): %d posts", len(fastPosts))
+	require.Equal(t, 1, course.Enrolled)
 
-	// 2. 限制结果数量查询
-	limitedPosts, err := repo.FindN(
-		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
-			return db.Where(cls.Status.Eq("published")).Order(cls.ViewCount.Desc())
-		},
-		3, // 限制3条记录
-	)
+	exist, err := enrollmentRepo.With(t.Context(), db).Exist(func(db *gorm.DB, cls *models.EnrollmentColumns) *gorm.DB {
+		return db.Where(cls.StudentName.Eq("Bob"))
+	})
 	require.NoError(t, err)
-	require.Len(t, limitedPosts, 3)
-	t.Logf("Limited query: %d posts", len(limitedPosts))
-
-	// 验证是按浏览量降序排列
-	for i := 1; i < len(limitedPosts); i++ {
-		require.GreaterOrEqual(t, limitedPosts[i-1].ViewCount, limitedPosts[i].ViewCount)
-	}
-
-	// 3. 使用 FindC 方法同时获取数据和总数
-	customPosts, customCount, err := repo.FindC(
-		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
-			return db.Where(cls.Category.Eq("tech"))
-		},
-		func(db *gorm.DB, cls *models.PostColumns) *gorm.DB {
-			return db.Order(cls.LikeCount.Desc()).Limit(3).Offset(0)
-		},
-	)
-	require.NoError(t, err)
-	require.Greater(t, len(customPosts), 0)
-	require.Greater(t, customCount, int64(0))
-	t.Logf("Custom FindC: %d posts, total: %d", len(customPosts), customCount)
+	require.False(t, exist)
 }

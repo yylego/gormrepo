@@ -9,11 +9,11 @@
 
 <!-- TEMPLATE (ZH) CLOSE: BADGES -->
 
-# 🚀 GORM 生态系统 - 企业级类型安全数据库操作
+# 🚀 gormrepo - 基于 GORM 的类型安全 Repo
 
-**gormrepo** 是完整 GORM 生态系统的**核心组件**，给 Go 开发者提供**类型安全**、**企业级**和**高效**的数据库操作。
+**gormrepo** 用泛型 repo 包装 GORM：查询条件、排序、新值都用 gormcngen 生成的列来写，列名或值的类型写错了，编译就过不去。
 
-> 🌟 **融合 Java MyBatis Plus + Python SQLAlchemy 的精华，与 Go 下一代 ORM 工具链精心设计**
+> 🌟 **回调拿到的是原生的 `*gorm.DB`，回调里写的就是原生 GORM 代码**
 
 ---
 
@@ -38,9 +38,7 @@
 | 生态系统       | Java MyBatis Plus  | Python SQLAlchemy | Go GORM 生态系统 |
 | -------------- | ------------------ | ----------------- | ---------------- |
 | **类型安全列** | `Example::getName` | `Example.name`    | `cls.Name.Eq()`  |
-| **代码生成**   | ✅ 插件支持        | ✅ 反射机制       | ✅ AST 精度      |
 | **仓储模式**   | ✅ BaseMapper      | ✅ Session API    | ✅ GormRepo      |
-| **原生语言**   | 🟡 有限支持        | 🟡 有限支持       | ✅ 完整支持      |
 
 ---
 
@@ -58,10 +56,10 @@ go get github.com/yylego/gormrepo
 
 ```go
 type Account struct {
-    ID       uint   `gorm:"primaryKey"`
-    Accountname string `gorm:"uniqueIndex" cnm:"accountname"`
-    Nickname string `gorm:"index" cnm:"nickname"`
-    Age      int    `cnm:"age"`
+    gorm.Model // ID、CreatedAt、UpdatedAt，以及开启软删除的 DeletedAt
+    Username string `gorm:"uniqueIndex"`
+    Nickname string `gorm:"index"`
+    Age      int
 }
 ```
 
@@ -69,20 +67,32 @@ type Account struct {
 
 ```go
 // 自动生成
-func (*Account) Columns() *AccountColumns {
-    return &AccountColumns{
-        ID:       "id",
-        Accountname: "accountname",
-        Nickname: "nickname",
-        Age:      "age",
-    }
+func (c *Account) Columns() *AccountColumns {
+    return c.TableColumns(gormcnm.NewPlainDecoration())
 }
 
 type AccountColumns struct {
-    ID       gormcnm.ColumnName[uint]
-    Accountname gormcnm.ColumnName[string]
-    Nickname gormcnm.ColumnName[string]
-    Age      gormcnm.ColumnName[int]
+    gormcnm.ColumnOperationClass // 嵌入的辅助方法，例如 cls.Kw(...)、cls.Merge(...)
+    ID        gormcnm.ColumnName[uint]
+    CreatedAt gormcnm.ColumnName[time.Time]
+    UpdatedAt gormcnm.ColumnName[time.Time]
+    DeletedAt gormcnm.ColumnName[gorm.DeletedAt]
+    Username  gormcnm.ColumnName[string]
+    Nickname  gormcnm.ColumnName[string]
+    Age       gormcnm.ColumnName[int]
+}
+
+// TableColumns 按装饰给出列，例如联表时带上表名：accounts.id
+func (c *Account) TableColumns(decoration gormcnm.ColumnNameDecoration) *AccountColumns {
+    return &AccountColumns{
+        ID:        gormcnm.Cmn(c.ID, "id", decoration),
+        CreatedAt: gormcnm.Cmn(c.CreatedAt, "created_at", decoration),
+        UpdatedAt: gormcnm.Cmn(c.UpdatedAt, "updated_at", decoration),
+        DeletedAt: gormcnm.Cmn(c.DeletedAt, "deleted_at", decoration),
+        Username:  gormcnm.Cmn(c.Username, "username", decoration),
+        Nickname:  gormcnm.Cmn(c.Nickname, "nickname", decoration),
+        Age:       gormcnm.Cmn(c.Age, "age", decoration),
+    }
 }
 ```
 
@@ -96,26 +106,41 @@ repo := gormrepo.NewRepo(&Account{}, (&Account{}).Columns())
 repo := gormrepo.NewRepo(gormclass.Use(&Account{}))
 ```
 
-#### 4. 如何查询
+#### 4. 查询记录
 
 ```go
 // 经典 GORM
-err := db.Where("name = ?", "alice").First(&account).Error
+var alice Account
+err := db.Where("username = ?", "alice").First(&alice).Error
 
 // gormrepo - First
 account, err := repo.With(ctx, db).First(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
-    return db.Where(cls.Accountname.Eq("alice"))
+    return db.Where(cls.Username.Eq("alice"))
 })
 
 // gormrepo - FirstE (返回 ErrorOrNotExist)
 account, erb := repo.With(ctx, db).FirstE(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
-    return db.Where(cls.Accountname.Eq("alice"))
+    return db.Where(cls.Username.Eq("alice"))
 })
 
 // gormrepo - Find
 accounts, err := repo.With(ctx, db).Find(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
     return db.Where(cls.Age.Gte(18))
 })
+
+// gormrepo - FindN（取前 N 条）
+accounts, err := repo.With(ctx, db).FindN(
+    func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+        return db.Where(cls.Age.Gte(18))
+    },
+    func(cls *AccountColumns) gormcnm.Ordering {
+        return cls.Age.Ob("DESC")
+    },
+    10,
+)
+
+// gormrepo - FindAll（查全部记录，不带条件）
+accounts, err := repo.With(ctx, db).FindAll()
 
 // gormrepo - FindO（带排序）
 accounts, err := repo.With(ctx, db).FindO(
@@ -149,6 +174,19 @@ accounts, count, err := repo.With(ctx, db).FindPageAndCount(
     &gormrepo.Pagination{Limit: 10, Offset: 0},
 )
 
+// gormrepo - FindC（分页写成自定义回调，同时返回不分页时的总数）
+accounts, count, err := repo.With(ctx, db).FindC(
+    func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+        return db.Where(cls.Age.Gte(18))
+    },
+    func(cls *AccountColumns) gormcnm.Ordering {
+        return cls.Age.Ob("DESC")
+    },
+    func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+        return db.Limit(10)
+    },
+)
+
 // gormrepo - Count
 count, err := repo.With(ctx, db).Count(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
     return db.Where(cls.Age.Gte(18))
@@ -156,19 +194,48 @@ count, err := repo.With(ctx, db).Count(func(db *gorm.DB, cls *AccountColumns) *g
 
 // gormrepo - Exist
 exist, err := repo.With(ctx, db).Exist(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
-    return db.Where(cls.Accountname.Eq("alice"))
+    return db.Where(cls.Username.Eq("alice"))
 })
 
 // gormrepo - Pluck（取一列的值，结果类型由列决定：这里是 []string）
 names, err := repo.With(ctx, db).Pluck(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
     return db.Where(cls.Age.Gte(18))
 }, func(cls *AccountColumns) gormcnm.ColumnName[string] {
-    return cls.Accountname
+    return cls.Username
 })
 
+// 结果行，不是表：跟模型放在一起，同样生成列
+type AccountInfo struct {
+    ID       uint
+    Username string
+}
+type AgeCount struct {
+    Age          int
+    AccountCount int64
+}
+
 // gormrepo - Scan（把结果行扫描到结构体，适合 Select / Joins / Group）
-briefs, err := repo.With(ctx, db).Scan[AccountBrief](func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
-    return db.Select(cls.ID.Name(), cls.Accountname.Name()).Where(cls.Age.Gte(18))
+infos, err := repo.With(ctx, db).Scan[AccountInfo](func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+    return db.Select(cls.ID.Name(), cls.Username.Name()).Where(cls.Age.Gte(18))
+})
+
+// gormrepo - ScanList（返回结果列表，回调同时获得结果结构体的列）
+ageCounts, err := repo.With(ctx, db).ScanList[AgeCount](func(db *gorm.DB, cls *AccountColumns, res *AgeCountColumns) *gorm.DB {
+    return db.Select(res.Merge(cls.Age.Name(), res.CountAs(res.AccountCount.Name()))).
+              Group(cls.Age.Name()).
+              Order(res.AccountCount.Desc())
+})
+
+// gormrepo - ScanItem（返回恰好一条结果，回调同时获得结果结构体的列）
+ageCount, err := repo.With(ctx, db).ScanItem[AgeCount](func(db *gorm.DB, cls *AccountColumns, res *AgeCountColumns) *gorm.DB {
+    return db.Select(res.Merge(cls.Age.Name(), res.CountAs(res.AccountCount.Name()))).
+              Where(cls.Age.Eq(18)).
+              Group(cls.Age.Name())
+})
+
+// gormrepo - ScanOne（查一个值，如聚合结果；查不到行或查出多行都报错）
+maxAge, err := repo.With(ctx, db).ScanOne[int](func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+    return db.Select(cls.Age.COALESCE().Max())
 })
 
 // gormrepo - Where 条件: Eq, Ne, Gt, Lt, Gte, Lte
@@ -181,7 +248,7 @@ accounts, err := repo.With(ctx, db).Find(func(db *gorm.DB, cls *AccountColumns) 
 // gormrepo - Like / NotLike
 accounts, err := repo.With(ctx, db).Find(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
     return db.Where(cls.Nickname.Like("%test%")).
-              Where(cls.Accountname.NotLike("%admin%"))
+              Where(cls.Username.NotLike("%admin%"))
 })
 
 // gormrepo - In / NotIn
@@ -211,86 +278,110 @@ accounts, err := repo.With(ctx, db).Find(func(db *gorm.DB, cls *AccountColumns) 
 accounts, err := repo.With(ctx, db).Find(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
     return db.Where(cls.Age.Gte(18)).
               Order(cls.Age.Desc()).
-              Select(cls.ID.Name(), cls.Accountname.Name())
+              Select(cls.ID.Name(), cls.Username.Name())
 })
 ```
 
 #### 查询操作
 
-| 方法               | 参数                                        | 返回值                   | 描述                     |
-| ------------------ | ------------------------------------------- | ------------------------ | ------------------------ |
-| `First`            | `where func(db *gorm.DB, cls CLS) *gorm.DB` | `*MOD, error`            | 查询第一个匹配记录       |
-| `FirstE`           | `where func(db *gorm.DB, cls CLS) *gorm.DB` | `*MOD, *ErrorOrNotExist` | 查询首条或返回不存在标识 |
-| `Find`             | `where func(db *gorm.DB, cls CLS) *gorm.DB` | `[]*MOD, error`          | 查询所有匹配记录         |
-| `FindO`            | `where, ordering`                           | `[]*MOD, error`          | 带排序查询所有匹配记录   |
-| `FindPage`         | `where, ordering, pagination`               | `[]*MOD, error`          | 分页查询                 |
-| `FindPageAndCount` | `where, ordering, pagination`               | `[]*MOD, int64, error`   | 分页查询带总数           |
-| `Count`            | `where func(db *gorm.DB, cls CLS) *gorm.DB` | `int64, error`           | 统计匹配记录数           |
-| `Exist`            | `where func(db *gorm.DB, cls CLS) *gorm.DB` | `bool, error`            | 检查记录是否存在         |
-| `Pluck[T]`         | `where, column`                             | `[]T, error`             | 取某一列的值             |
-| `Scan[T]`          | `where func(db *gorm.DB, cls CLS) *gorm.DB` | `[]T, error`             | 结果行扫描到结构体 T     |
+| 方法               | 参数                                                  | 返回值                   | 描述                             |
+| ------------------ | ----------------------------------------------------- | ------------------------ | -------------------------------- |
+| `First`            | `where func(db *gorm.DB, cls CLS) *gorm.DB`           | `*MOD, error`            | 查询第一个匹配记录               |
+| `FirstE`           | `where func(db *gorm.DB, cls CLS) *gorm.DB`           | `*MOD, *ErrorOrNotExist` | 查询首条或返回不存在标识         |
+| `Find`             | `where func(db *gorm.DB, cls CLS) *gorm.DB`           | `[]*MOD, error`          | 查询所有匹配记录                 |
+| `FindAll`          | (无)                                                  | `[]*MOD, error`          | 查全部记录                       |
+| `FindN`            | `where, ordering, size`                               | `[]*MOD, error`          | 取前 N 条匹配记录                |
+| `FindO`            | `where, ordering`                                     | `[]*MOD, error`          | 带排序查询所有匹配记录           |
+| `FindC`            | `where, ordering, paging`                             | `[]*MOD, int64, error`   | 自定义分页回调，带总数           |
+| `FindPage`         | `where, ordering, pagination`                         | `[]*MOD, error`          | 分页查询                         |
+| `FindPageAndCount` | `where, ordering, pagination`                         | `[]*MOD, int64, error`   | 分页查询带总数                   |
+| `Count`            | `where func(db *gorm.DB, cls CLS) *gorm.DB`           | `int64, error`           | 统计匹配记录数                   |
+| `Exist`            | `where func(db *gorm.DB, cls CLS) *gorm.DB`           | `bool, error`            | 检查记录是否存在                 |
+| `Pluck[T]`         | `where, column`                                       | `[]T, error`             | 取某一列的值                     |
+| `Scan[T]`          | `where func(db *gorm.DB, cls CLS) *gorm.DB`           | `[]T, error`             | 结果行扫描到结构体 T             |
+| `ScanList[RES]`    | `where func(db *gorm.DB, cls CLS, res CLSR) *gorm.DB` | `[]RES, error`           | 返回列表，回调提供结果列         |
+| `ScanItem[RES]`    | `where func(db *gorm.DB, cls CLS, res CLSR) *gorm.DB` | `RES, error`             | 返回恰好一条结果，回调提供结果列 |
+| `ScanOne[T]`       | `where func(db *gorm.DB, cls CLS) *gorm.DB`           | `T, error`               | 查一个值，不是一行就报错         |
 
-#### 5. 如何创建
+`ScanList` 和 `ScanItem` 都是 `GormRepo` 的方法，结果类型需要列定义（例如 `AgeCountColumns`），可以通过 gormcngen 生成。`ScanItem` 遇到零行或多行都会报错，不会自动取第一行。`Scan` 和 `ScanOne` 不要求结果类型具有列定义。
+
+排序的传法：取前 N 条或分页的方法（`FindN`、`FindPage`、`FindPageAndCount`、`FindC`）都把排序作为必填参数，因为不排序的话，前 N 条是哪几条数据库不保证，翻页时数据也可能重复或漏掉。普通分页用 `FindPageAndCount`；分页部分要写逻辑时用 `FindC`（例如只有传了页码才分页），它的分页回调拿到已经带上条件和排序的 `*gorm.DB`，在上面加 `Limit` / `Offset`。`FindO` 是带排序的 `Find`。其余方法跟原生 GORM 一样，要排序就在 where 回调里写 `db.Order(cls.Age.Desc())`。
+
+#### 5. 创建记录
 
 ```go
 // 经典 GORM
-err := db.Create(&Account{Accountname: "bob", Nickname: "Bob", Age: 25}).Error
+err := db.Create(&Account{Username: "bob", Nickname: "Bob", Age: 25}).Error
 
 // gormrepo
-err := repo.With(ctx, db).Create(&Account{Accountname: "bob", Nickname: "Bob", Age: 25})
+err := repo.With(ctx, db).Create(&Account{Username: "bob", Nickname: "Bob", Age: 25})
+
+// gormrepo - CreateInBatches（插入很多条，每条 SQL 插 batchSize 条）
+err := repo.With(ctx, db).CreateInBatches(accounts, 100)
 ```
 
 #### 创建操作
 
-| 方法      | 参数          | 返回值  | 描述               |
-| --------- | ------------- | ------- | ------------------ |
-| `Create`  | `one *MOD`    | `error` | 创建新记录         |
-| `Creates` | `ones []*MOD` | `error` | 批量创建记录       |
-| `Save`    | `one *MOD`    | `error` | 插入或更新记录     |
-| `Saves`   | `ones []*MOD` | `error` | 批量插入或更新记录 |
+| 方法              | 参数                     | 返回值  | 描述               |
+| ----------------- | ------------------------ | ------- | ------------------ |
+| `Create`          | `one *MOD`               | `error` | 创建新记录         |
+| `Creates`         | `ones []*MOD`            | `error` | 批量创建记录       |
+| `CreateInBatches` | `ones []*MOD, batchSize` | `error` | 分批创建记录       |
+| `Save`            | `one *MOD`               | `error` | 插入或更新记录     |
+| `Saves`           | `ones []*MOD`            | `error` | 批量插入或更新记录 |
 
-#### 6. 如何更新
+#### 6. 更新记录
 
 ```go
 // 经典 GORM
-err := db.Model(&Account{}).Where("id = ?", 1).Updates(map[string]interface{}{"age": 26}).Error
+err := db.Model(&Account{}).Where("id = ?", 1).Updates(map[string]any{"age": 26}).Error
 
-// gormrepo - Updates
+// gormrepo - Update（更新一列）
+err := repo.With(ctx, db).Update(
+    func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+        return db.Where(cls.ID.Eq(1))
+    },
+    func(cls *AccountColumns) (string, any) {
+        return cls.Age.Kv(26)
+    },
+)
+
+// gormrepo - Updates（原生的 map[string]any，跟 GORM 写法一样）
 err := repo.With(ctx, db).Updates(
     func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
         return db.Where(cls.ID.Eq(1))
     },
-    func(cls *AccountColumns) map[string]interface{} {
+    func(cls *AccountColumns) map[string]any {
         return cls.Kw(cls.Age.Kv(26)).
                   Kw(cls.Nickname.Kv("NewNick")).
                   AsMap()
     },
 )
 
-// gormrepo - UpdatesM (使用 ColumnValueMap)
+// gormrepo - UpdatesM（使用 ColumnValueMap，每个值都有类型检查，推荐写法）
 err := repo.With(ctx, db).UpdatesM(
     func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
         return db.Where(cls.ID.Eq(1))
     },
-    func(cls *AccountColumns) *gormcnm.ColumnValueMap {
+    func(cls *AccountColumns) gormcnm.ColumnValueMap {
         return cls.Kw(cls.Age.Kv(26)).
                   Kw(cls.Nickname.Kv("NewNick"))
     },
 )
 
 // gormrepo - UpdatesO (通过主键)
-account := &Account{ID: 1}
-err := repo.With(ctx, db).UpdatesO(account, func(cls *AccountColumns) *gormcnm.ColumnValueMap {
+account := &Account{Model: gorm.Model{ID: 1}}
+err := repo.With(ctx, db).UpdatesO(account, func(cls *AccountColumns) gormcnm.ColumnValueMap {
     return cls.Kw(cls.Age.Kv(26))
 })
 
 // gormrepo - UpdatesC (组合条件)
-account := &Account{ID: 1}
+account := &Account{Model: gorm.Model{ID: 1}}
 err := repo.With(ctx, db).UpdatesC(account,
     func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
         return db.Where(cls.Age.Lt(30))
     },
-    func(cls *AccountColumns) *gormcnm.ColumnValueMap {
+    func(cls *AccountColumns) gormcnm.ColumnValueMap {
         return cls.Kw(cls.Age.Kv(26))
     },
 )
@@ -300,20 +391,20 @@ err := repo.With(ctx, db).UpdatesC(account,
 
 | 方法       | 参数                       | 返回值  | 描述                             |
 | ---------- | -------------------------- | ------- | -------------------------------- |
-| `Update`   | `where, valueFunc`         | `error` | 更新单个字段                     |
-| `Updates`  | `where, mapValues`         | `error` | 更新多个字段                     |
+| `Update`   | `where, newValue`          | `error` | 更新单个字段                     |
+| `Updates`  | `where, newValues`         | `error` | 更新多个字段                     |
 | `UpdatesM` | `where, newValues`         | `error` | 使用 ColumnValueMap 更新 (M=Map) |
 | `UpdatesO` | `object, newValues`        | `error` | 通过主键更新 (O=Object)          |
 | `UpdatesC` | `object, where, newValues` | `error` | 组合条件更新 (C=Combined)        |
 
-#### 7. 如何删除
+#### 7. 删除记录
 
 ```go
 // 经典 GORM
 err := db.Where("id = ?", 1).Delete(&Account{}).Error
 
 // gormrepo - Delete (通过实例)
-account := &Account{ID: 1}
+account := &Account{Model: gorm.Model{ID: 1}}
 err := repo.With(ctx, db).Delete(account)
 
 // gormrepo - DeleteW (通过条件)
@@ -322,7 +413,7 @@ err := repo.With(ctx, db).DeleteW(func(db *gorm.DB, cls *AccountColumns) *gorm.D
 })
 
 // gormrepo - DeleteM (实例 + 条件)
-account := &Account{ID: 1}
+account := &Account{Model: gorm.Model{ID: 1}}
 err := repo.With(ctx, db).DeleteM(account, func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
     return db.Where(cls.Age.Lt(30))
 })
@@ -352,17 +443,11 @@ err := repo.With(ctx, db).Invoke(func(db *gorm.DB, cls *AccountColumns) *gorm.DB
         Update(cls.Age.Name(), gorm.Expr(cls.Age.Name()+" + ?", 1))
 })
 
-// Invoke - 选取特定列
-var names []string
-err := repo.With(ctx, db).Invoke(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
-    return db.Where(cls.Age.Gte(18)).Pluck(cls.Accountname.Name(), &names)
-})
-
 // Invoke - 复杂条件
 err := repo.With(ctx, db).Invoke(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
     return db.Where(cls.Age.Between(18, 60)).
         Where(cls.Nickname.IsNotNull()).
-        Updates(map[string]interface{}{
+        Updates(map[string]any{
             cls.Nickname.Name(): "active",
         })
 })
@@ -370,21 +455,23 @@ err := repo.With(ctx, db).Invoke(func(db *gorm.DB, cls *AccountColumns) *gorm.DB
 
 #### 调用操作
 
-| 方法     | 参数                                         | 返回值  | 描述           |
-| -------- | -------------------------------------------- | ------- | -------------- |
-| `Invoke` | `clsRun func(db *gorm.DB, cls CLS) *gorm.DB` | `error` | 执行自定义操作 |
+| 方法     | 参数                                      | 返回值  | 描述           |
+| -------- | ----------------------------------------- | ------- | -------------- |
+| `Invoke` | `run func(db *gorm.DB, cls CLS) *gorm.DB` | `error` | 执行自定义操作 |
 
 #### 9. 使用 Clauses 实现 Upsert
 
 使用 `Clauses` 或 `Clause` 实现 upsert（冲突时插入或更新）：
 
 ```go
+account := &Account{Username: "alice", Nickname: "Alice"}
+
 // Clauses - 直接传入 clause.Expression
 cls := account.Columns()
 err := repo.With(ctx, db).Clauses(clause.OnConflict{
     Columns:   []clause.Column{{Name: cls.Username.Name()}},
     DoUpdates: clause.AssignmentColumns([]string{cls.Nickname.Name()}),
-}).Create(&account)
+}).Create(account)
 
 // Clause - 类型安全，使用列定义构建
 err := repo.With(ctx, db).Clause(func(cls *AccountColumns) clause.Expression {
@@ -392,7 +479,7 @@ err := repo.With(ctx, db).Clause(func(cls *AccountColumns) clause.Expression {
         Columns:   []clause.Column{{Name: cls.Username.Name()}},
         DoUpdates: clause.AssignmentColumns([]string{cls.Nickname.Name()}),
     }
-}).Create(&account)
+}).Create(account)
 
 // 批量 upsert，使用 Clause + Creates
 accounts := []*Account{
@@ -433,6 +520,74 @@ accounts, err := repo.With(ctx, db).Unscoped().Find(func(db *gorm.DB, cls *Accou
 | 方法       | 参数 | 返回值      | 描述                         |
 | ---------- | ---- | ----------- | ---------------------------- |
 | `Unscoped` | (无) | `*GormRepo` | 通过链式调用禁用软删除作用域 |
+
+#### 11. 可复用的 scope
+
+把条件、排序或分页写成一次 GORM scope，任何查询都能通过 `db.Scopes` 加上它：
+
+```go
+adult := repo.NewScope(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+    return db.Where(cls.Age.Gte(18))
+})
+ageDescScope := repo.NewOrderingScope(func(cls *AccountColumns) gormcnm.Ordering {
+    return cls.Age.Ob("desc")
+})
+
+accounts, err := repo.With(ctx, db).Find(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+    return db.Scopes(adult, ageDescScope)
+})
+```
+
+| 方法               | 参数                                        | 返回值          | 描述             |
+| ------------------ | ------------------------------------------- | --------------- | ---------------- |
+| `NewScope`         | `where func(db *gorm.DB, cls CLS) *gorm.DB` | `ScopeFunction` | 带列定义的 scope |
+| `NewOrderingScope` | `ordering func(cls CLS) gormcnm.Ordering`   | `ScopeFunction` | 排序 scope       |
+| `NewPaginateScope` | `ordering, page *Pagination`                | `ScopeFunction` | 排序加分页 scope |
+
+#### 12. 联表查询（gormjoin）
+
+`gormjoin` 只负责连表：传两个表 repo 和连接条件，它给出 JOIN 语句和要选的列，其余交给 GORM，以 `*gorm.DB` 为纽带。表 repo 给出带表名的列，例如 `students.id`。结果结构体也用 gormcngen 生成列，起别名时直接指向结果的列，类型对不上编译就报错：
+
+```go
+type StudentScore struct { // 结果行，生成列后得到 StudentScoreColumns
+    StudentName string
+    Subject     string
+    Points      int
+}
+
+studentRepo := gormtablerepo.NewRepo(gormclass.UseTable(&Student{}))
+scoreRepo := gormtablerepo.NewRepo(gormclass.UseTable(&Score{}))
+
+join := gormjoin.LeftJoin(studentRepo, scoreRepo, func(student *StudentColumns, score *ScoreColumns) []string {
+    return []string{score.StudentID.OnEq(student.ID)}
+})
+
+var rows []StudentScore
+err := db.Model(&Student{}).
+    Joins(join.Stmt()).
+    Select(join.Names[StudentScore](func(student *StudentColumns, score *ScoreColumns, res *StudentScoreColumns) []string {
+        return []string{
+            student.Name.AsName(res.StudentName),
+            score.Subject.AsName(res.Subject),
+            score.Points.AsName(res.Points),
+        }
+    })).
+    Scopes(scoreRepo.Base().NewScope(func(db *gorm.DB, cls *ScoreColumns) *gorm.DB {
+        return db.Where(cls.Points.Gte(60))
+    })).
+    Scan(&rows).Error
+// SELECT students.name as student_name,scores.subject as subject,scores.points as points FROM `students`
+// LEFT JOIN scores ON scores.student_id=students.id WHERE scores.points>=60
+```
+
+连三张表就是两段两表连接：每段的 `Stmt()` 各用一次 `Joins`，每段的 `Names` 用 `slices.Concat` 拼起来，见 [example09](internal/examples/example09)。软删除照 GORM 的规矩：GORM 通过 `db.Model` 给第一张表加，被连的表需要时自己写在连接条件里，例如 `score.DeletedAt.IsNull()`。[example10](internal/examples/example10) 对比了 gormjoin 和 GORM 的 `Preload`。
+
+| 函数 / 方法                            | 参数                                      | 返回       | 说明                       |
+| -------------------------------------- | ----------------------------------------- | ---------- | -------------------------- |
+| `LeftJoin` / `RightJoin` / `InnerJoin` | `repo1, repo2, func(cls1, cls2) []string` | `*Join`    | 把 repo2 连到 repo1 上     |
+| `New`                                  | `repo1, joinType, repo2, onFunc`          | `*Join`    | 指定连接类型               |
+| `(*Join).Stmt`                         | (无)                                      | `string`   | JOIN 语句，传给 `db.Joins` |
+| `(*Join).Names[RES]`                   | `func(cls1, cls2, res) []string`          | `[]string` | 要选的列，传给 `db.Select` |
 
 ---
 

@@ -10,7 +10,7 @@ import (
 //
 // Use 返回数据库(db)、模型(mod)和关联的列(cls)
 // 便捷函数，一次调用获取三个组件
-func Use[MOD gormclass.ModelCols[CLS], CLS any](db *gorm.DB, one MOD) (*gorm.DB, MOD, CLS) {
+func Use[MOD gormclass.ColumnsInterface[CLS], CLS any](db *gorm.DB, one MOD) (*gorm.DB, MOD, CLS) {
 	one, cls := gormclass.Use(one)
 	return db, one, cls
 }
@@ -20,7 +20,7 @@ func Use[MOD gormclass.ModelCols[CLS], CLS any](db *gorm.DB, one MOD) (*gorm.DB,
 //
 // Umc 返回数据库(db)、模型(mod)和关联的列(cls)
 // 是 Use 的别名，以更短的名称提供相同功能
-func Umc[MOD gormclass.ModelCols[CLS], CLS any](db *gorm.DB, one MOD) (*gorm.DB, MOD, CLS) {
+func Umc[MOD gormclass.ColumnsInterface[CLS], CLS any](db *gorm.DB, one MOD) (*gorm.DB, MOD, CLS) {
 	one, cls := gormclass.Umc(one)
 	return db, one, cls
 }

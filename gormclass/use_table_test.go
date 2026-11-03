@@ -5,21 +5,21 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/yylego/gormrepo/gormclass"
-	"github.com/yylego/neatjson/neatjsons"
+	"github.com/yylego/gormrepo/gormclass/internal/models"
 )
 
-func TestUseTableWithAccount(t *testing.T) {
-	one, tableName, cls := gormclass.UseTable(&Account{})
-	t.Log(one.TableName())
-	t.Log(tableName)
+func TestUseTable(t *testing.T) {
+	one, tableName, cls := gormclass.UseTable(&models.Account{})
+	require.Equal(t, "accounts", tableName)
 	require.Equal(t, one.TableName(), tableName)
-	t.Log(neatjsons.S(cls))
+	// Table columns come with the table name, which a join needs
+	// 表列带表名，联表需要这种列
+	require.Equal(t, "accounts.username", cls.Username.Name())
 }
 
-func TestUmcTableWithExample(t *testing.T) {
-	one, tableName, cls := gormclass.UmcTable(&Example{})
-	t.Log(one.TableName())
-	t.Log(tableName)
+func TestUmcTable(t *testing.T) {
+	one, tableName, cls := gormclass.UmcTable(&models.Example{})
+	require.Equal(t, "examples", tableName)
 	require.Equal(t, one.TableName(), tableName)
-	t.Log(neatjsons.S(cls))
+	require.Equal(t, "examples.name", cls.Name.Name())
 }

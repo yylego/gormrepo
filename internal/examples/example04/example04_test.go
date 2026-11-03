@@ -1,3 +1,10 @@
+// Package example04_test shows sorting and paging
+// FindO sorts, FindN takes the first N, FindPage / FindPageAndCount page with a Pagination, FindC pages with a custom callback
+// Each one takes the ordering as a required param, since the first N rows and the pages are not stable without ORDER BY
+//
+// example04_test 演示排序与分页
+// FindO 排序，FindN 取前 N 条，FindPage / FindPageAndCount 按 Pagination 分页，FindC 用自定义回调分页
+// 这几个方法都把排序作为必填参数，因为取前 N 条或分页时不排序，拿到的行不稳定
 package example04_test
 
 import (
@@ -7,7 +14,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/yylego/done"
+	"github.com/yylego/gormcnm"
 	"github.com/yylego/gormrepo"
+	"github.com/yylego/gormrepo/gormclass"
 	"github.com/yylego/gormrepo/internal/examples/example04/internal/models"
 	"github.com/yylego/rese"
 	"gorm.io/driver/sqlite"
@@ -15,156 +24,125 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-var testDB *gorm.DB
+var caseDB *gorm.DB
+
+var studentRepo = gormrepo.NewRepo(gormclass.Use(&models.Student{}))
 
 func TestMain(m *testing.M) {
-	// 创建内存数据库
 	dsn := fmt.Sprintf("file:db-%s?mode=memory&cache=shared", uuid.New().String())
 	db := rese.P1(gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Info),
 	}))
 	defer rese.F0(rese.P1(db.DB()).Close)
 
-	// 自动迁移两个表
-	done.Done(db.AutoMigrate(&models.Category{}, &models.Product{}))
+	done.Done(db.AutoMigrate(&models.Student{}))
+	done.Done(db.Create([]*models.Student{
+		{Name: "Alice", Grade: "grade-1", Score: 90},
+		{Name: "Bob", Grade: "grade-1", Score: 75},
+		{Name: "Chloe", Grade: "grade-1", Score: 90},
+		{Name: "David", Grade: "grade-1", Score: 60},
+		{Name: "Eric", Grade: "grade-1", Score: 85},
+		{Name: "Frank", Grade: "grade-2", Score: 95},
+	}).Error)
 
-	// 插入测试分类数据
-	categories := []*models.Category{
-		{Name: "电子产品", Code: "electronics", Sort: 1, Status: "active"},
-		{Name: "服装", Code: "clothing", Sort: 2, Status: "active"},
-		{Name: "图书", Code: "books", Sort: 3, Status: "inactive"},
-	}
-	for _, category := range categories {
-		done.Done(db.Create(category).Error)
-	}
-
-	// 插入测试产品数据
-	products := []*models.Product{
-		{Name: "iPhone 15", Price: 999.99, Stock: 50, CategoryID: 1, Status: "active"},
-		{Name: "MacBook Pro", Price: 1999.99, Stock: 20, CategoryID: 1, Status: "active"},
-		{Name: "T恤", Price: 29.99, Stock: 100, CategoryID: 2, Status: "active"},
-		{Name: "牛仔裤", Price: 79.99, Stock: 0, CategoryID: 2, Status: "inactive"},
-		{Name: "Go语言圣经", Price: 59.99, Stock: 30, CategoryID: 3, Status: "active"},
-	}
-	for _, product := range products {
-		done.Done(db.Create(product).Error)
-	}
-
-	testDB = db
+	caseDB = db
 	m.Run()
 }
 
-// TestTwoModelsBasicOperations 演示双模型的基础操作
-func TestTwoModelsBasicOperations(t *testing.T) {
-	// 1. 分类相关操作
-	categoryRepo := gormrepo.NewGormRepo(gormrepo.Use(testDB, &models.Category{}))
-
-	// 查询活跃分类
-	activeCategories, err := categoryRepo.Find(func(db *gorm.DB, cls *models.CategoryColumns) *gorm.DB {
-		return db.Where(cls.Status.Eq("active")).Order(cls.Sort.Asc())
-	})
-	require.NoError(t, err)
-	require.Len(t, activeCategories, 2)
-	require.Equal(t, "电子产品", activeCategories[0].Name)
-	require.Equal(t, "服装", activeCategories[1].Name)
-	t.Logf("Found %d active categories", len(activeCategories))
-
-	// 2. 产品相关操作
-	productRepo := gormrepo.NewGormRepo(gormrepo.Use(testDB, &models.Product{}))
-
-	// 查询高价产品
-	expensiveProducts, err := productRepo.Find(func(db *gorm.DB, cls *models.ProductColumns) *gorm.DB {
-		return db.Where(cls.Price.Gt(100.0)).Order(cls.Price.Desc())
-	})
-	require.NoError(t, err)
-	require.Len(t, expensiveProducts, 2)
-	require.Equal(t, "MacBook Pro", expensiveProducts[0].Name)
-	require.Equal(t, "iPhone 15", expensiveProducts[1].Name)
-	t.Logf("Found %d expensive products", len(expensiveProducts))
-
-	// 3. 查询特定分类的产品
-	electronicsProducts, err := productRepo.Find(func(db *gorm.DB, cls *models.ProductColumns) *gorm.DB {
-		return db.Where(cls.CategoryID.Eq(1))
-	})
-	require.NoError(t, err)
-	require.Len(t, electronicsProducts, 2)
-	t.Logf("Electronics category has %d products", len(electronicsProducts))
+// namesOf returns the names of the students in sequence
+// namesOf 按顺序返回学生的名字
+func namesOf(students []*models.Student) []string {
+	names := make([]string, 0, len(students))
+	for _, student := range students {
+		names = append(names, student.Name)
+	}
+	return names
 }
 
-// TestComplexQueries 演示复杂查询功能
-func TestComplexQueries(t *testing.T) {
-	productRepo := gormrepo.NewGormRepo(gormrepo.Use(testDB, &models.Product{}))
-
-	// 1. 价格区间查询
-	midRangeProducts, err := productRepo.Find(func(db *gorm.DB, cls *models.ProductColumns) *gorm.DB {
-		stmt, arg1, arg2 := cls.Price.BetweenAND(50.0, 100.0)
-		return db.Where(stmt, arg1, arg2)
-	})
+func TestFindO(t *testing.T) {
+	// Grade 1, from the high score to the low, the same score sorted on the name
+	// 一年级，分数从高到低，分数相同按名字排
+	students, err := studentRepo.With(t.Context(), caseDB).FindO(
+		func(db *gorm.DB, cls *models.StudentColumns) *gorm.DB {
+			return db.Where(cls.Grade.Eq("grade-1"))
+		},
+		func(cls *models.StudentColumns) gormcnm.Ordering {
+			return cls.Score.Ob("desc").Ob(cls.Name.Ob("asc"))
+		},
+	)
 	require.NoError(t, err)
-	require.Len(t, midRangeProducts, 2) // T恤 和 Go语言圣经
-	t.Logf("Mid-range products: %d", len(midRangeProducts))
-
-	// 2. 多条件组合查询 - 有库存且活跃的产品
-	availableProducts, err := productRepo.Find(func(db *gorm.DB, cls *models.ProductColumns) *gorm.DB {
-		return db.Where(cls.Stock.Gt(0)).Where(cls.Status.Eq("active"))
-	})
-	require.NoError(t, err)
-	require.Len(t, availableProducts, 4) // 排除库存为0的牛仔裤
-	t.Logf("Available products: %d", len(availableProducts))
-
-	// 3. 名称模糊查询
-	iphoneProducts, err := productRepo.Find(func(db *gorm.DB, cls *models.ProductColumns) *gorm.DB {
-		return db.Where(cls.Name.Like("%iPhone%"))
-	})
-	require.NoError(t, err)
-	require.Len(t, iphoneProducts, 1)
-	require.Equal(t, "iPhone 15", iphoneProducts[0].Name)
-	t.Logf("iPhone products: %d", len(iphoneProducts))
-
-	// 4. IN 查询 - 特定分类的产品
-	targetCategories := []uint{1, 2}
-	categoryProducts, err := productRepo.Find(func(db *gorm.DB, cls *models.ProductColumns) *gorm.DB {
-		return db.Where(cls.CategoryID.In(targetCategories))
-	})
-	require.NoError(t, err)
-	require.Len(t, categoryProducts, 4) // 电子产品2个 + 服装2个
-	t.Logf("Products in target categories: %d", len(categoryProducts))
+	require.Equal(t, []string{"Alice", "Chloe", "Eric", "Bob", "David"}, namesOf(students))
 }
 
-// TestCountAndExist 演示计数和存在性检查
-func TestCountAndExist(t *testing.T) {
-	productRepo := gormrepo.NewGormRepo(gormrepo.Use(testDB, &models.Product{}))
-	categoryRepo := gormrepo.NewGormRepo(gormrepo.Use(testDB, &models.Category{}))
-
-	// 1. 计算每个分类的产品数量
-	electronicsCount, err := productRepo.Count(func(db *gorm.DB, cls *models.ProductColumns) *gorm.DB {
-		return db.Where(cls.CategoryID.Eq(1))
-	})
+func TestFindN(t *testing.T) {
+	// The top 2 of grade 1
+	// 一年级的前 2 名
+	students, err := studentRepo.With(t.Context(), caseDB).FindN(
+		func(db *gorm.DB, cls *models.StudentColumns) *gorm.DB {
+			return db.Where(cls.Grade.Eq("grade-1"))
+		},
+		func(cls *models.StudentColumns) gormcnm.Ordering {
+			return cls.Score.Ob("desc").Ob(cls.Name.Ob("asc"))
+		},
+		2,
+	)
 	require.NoError(t, err)
-	require.Equal(t, int64(2), electronicsCount)
-	t.Logf("Electronics products count: %d", electronicsCount)
+	require.Equal(t, []string{"Alice", "Chloe"}, namesOf(students))
+}
 
-	// 2. 检查是否存在特定价格的产品
-	exists, err := productRepo.Exist(func(db *gorm.DB, cls *models.ProductColumns) *gorm.DB {
-		return db.Where(cls.Price.Gt(1500.0))
-	})
+func TestFindPage(t *testing.T) {
+	// Page 2 with 2 rows each page
+	// 每页 2 条，取第 2 页
+	students, err := studentRepo.With(t.Context(), caseDB).FindPage(
+		func(db *gorm.DB, cls *models.StudentColumns) *gorm.DB {
+			return db.Where(cls.Grade.Eq("grade-1"))
+		},
+		func(cls *models.StudentColumns) gormcnm.Ordering {
+			return cls.Score.Ob("desc").Ob(cls.Name.Ob("asc"))
+		},
+		&gormrepo.Pagination{Limit: 2, Offset: 2},
+	)
 	require.NoError(t, err)
-	require.True(t, exists) // MacBook Pro 价格 > 1500
-	t.Logf("Expensive product exists: %v", exists)
+	require.Equal(t, []string{"Eric", "Bob"}, namesOf(students))
+}
 
-	// 3. 检查是否存在特定编码的分类
-	exists, err = categoryRepo.Exist(func(db *gorm.DB, cls *models.CategoryColumns) *gorm.DB {
-		return db.Where(cls.Code.Eq("electronics"))
-	})
+func TestFindPageAndCount(t *testing.T) {
+	// Page 3 with 2 rows each page, and the count of matching rows across pages
+	// 每页 2 条取第 3 页，加上不分页时符合条件的总数
+	students, count, err := studentRepo.With(t.Context(), caseDB).FindPageAndCount(
+		func(db *gorm.DB, cls *models.StudentColumns) *gorm.DB {
+			return db.Where(cls.Grade.Eq("grade-1"))
+		},
+		func(cls *models.StudentColumns) gormcnm.Ordering {
+			return cls.Score.Ob("desc").Ob(cls.Name.Ob("asc"))
+		},
+		&gormrepo.Pagination{Limit: 2, Offset: 4},
+	)
 	require.NoError(t, err)
-	require.True(t, exists)
-	t.Logf("Electronics category exists: %v", exists)
+	require.Equal(t, []string{"David"}, namesOf(students))
+	require.Equal(t, int64(5), count)
+}
 
-	// 4. 统计活跃分类数量
-	activeCategoryCount, err := categoryRepo.Count(func(db *gorm.DB, cls *models.CategoryColumns) *gorm.DB {
-		return db.Where(cls.Status.Eq("active"))
-	})
+func TestFindC(t *testing.T) {
+	// FindC fits paging that needs code: here the page is cut just when a page index is given, 0 gives each row
+	// FindC 适合分页部分要写逻辑的场景：这里只有传了页码才分页，传 0 返回全部
+	page := 2
+	students, count, err := studentRepo.With(t.Context(), caseDB).FindC(
+		func(db *gorm.DB, cls *models.StudentColumns) *gorm.DB {
+			return db.Where(cls.Grade.Eq("grade-1"))
+		},
+		func(cls *models.StudentColumns) gormcnm.Ordering {
+			return cls.Score.Ob("desc").Ob(cls.Name.Ob("asc"))
+		},
+		func(db *gorm.DB, cls *models.StudentColumns) *gorm.DB {
+			// db comes with the where and the ordering on it // db 上已经带了条件和排序
+			if page > 0 {
+				db = db.Offset((page - 1) * 2).Limit(2)
+			}
+			return db
+		},
+	)
 	require.NoError(t, err)
-	require.Equal(t, int64(2), activeCategoryCount)
-	t.Logf("Active categories count: %d", activeCategoryCount)
+	require.Equal(t, []string{"Eric", "Bob"}, namesOf(students))
+	require.Equal(t, int64(5), count)
 }

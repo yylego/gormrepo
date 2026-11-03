@@ -1,37 +1,31 @@
 package models
 
-import (
-	"gorm.io/gorm"
-)
-
-// Author 作者表
-type Author struct {
-	gorm.Model
-
-	Name    string `gorm:"not null;index"`
-	Email   string `gorm:"unique;index"`
-	Bio     string `gorm:"type:text"`
-	Country string `gorm:"index"`
+// Class is a row of the classes table
+// Class 是 classes 表的一行
+type Class struct {
+	ID   uint
+	Room string
 }
 
-func (*Author) TableName() string {
-	return "authors"
+func (*Class) TableName() string {
+	return "classes"
 }
 
-// Book 书籍表
-type Book struct {
-	gorm.Model
-
-	Title       string  `gorm:"not null;index"`
-	ISBN        string  `gorm:"unique;not null;index"`
-	Price       float64 `gorm:"type:decimal(10,2)"`
-	PublishedAt string  `gorm:"index"`
-	Status      string  `gorm:"index;default:'PUBLISHED'"`
-
-	// 外键
-	AuthorID uint `gorm:"not null;index"`
+// Student is a row of the students table, ClassID is zero when the student is not in a class yet
+// Student 是 students 表的一行，还没分班时 ClassID 为零
+type Student struct {
+	ID      uint
+	Name    string
+	ClassID uint
 }
 
-func (*Book) TableName() string {
-	return "books"
+func (*Student) TableName() string {
+	return "students"
+}
+
+// StudentWithClass carries the Class association that Preload needs, the table remains students
+// StudentWithClass 带上 Preload 需要的 Class 关联字段，表还是 students
+type StudentWithClass struct {
+	Student
+	Class *Class `gorm:"foreignKey:ClassID"`
 }
