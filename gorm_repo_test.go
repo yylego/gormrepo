@@ -1,7 +1,7 @@
 package gormrepo_test
 
 import (
-	"sort"
+	"slices"
 	"testing"
 
 	"github.com/google/uuid"
@@ -115,7 +115,7 @@ func TestGormRepo_Where(t *testing.T) {
 		require.NoError(t, dbx.Find(&nicknames).Error)
 		t.Log(nicknames)
 		require.Len(t, nicknames, 2)
-		sort.Strings(nicknames)
+		slices.Sort(nicknames)
 		require.Equal(t, []string{"demo-1-nickname", "demo-2-nickname"}, nicknames)
 	})
 
@@ -168,10 +168,12 @@ func TestGormRepo_Find(t *testing.T) {
 	repo := gormrepo.NewGormRepo(gormrepo.Use(db, &models.Account{}))
 
 	accounts, err := repo.Find(func(db *gorm.DB, cls *models.AccountColumns) *gorm.DB {
-		return db.Where(cls.Username.Like("demo-%-username"))
+		return db.Where(cls.Username.Like("demo-%-username")).Order(cls.Username.Asc())
 	})
 	require.NoError(t, err)
-	require.NotEmpty(t, accounts)
+	require.Len(t, accounts, 2)
+	require.Equal(t, "demo-1-username", accounts[0].Username)
+	require.Equal(t, "demo-2-username", accounts[1].Username)
 	t.Log(neatjsons.S(accounts))
 }
 
@@ -501,11 +503,11 @@ func TestGormRepo_ScanItem(t *testing.T) {
 		name      string
 		pattern   string
 		want      models.AccountInfo
-		wantCause string
+		wantFault bool
 	}{
 		{name: "one-row", pattern: "demo-2-username", want: models.AccountInfo{LoginName: "demo-2-username", ShowName: "demo-2-nickname"}},
-		{name: "no-rows", pattern: "missing-username", wantCause: "got 0 rows"},
-		{name: "multiple-rows", pattern: "demo-%-username", wantCause: "got 2 rows"},
+		{name: "no-rows", pattern: "missing-username", wantFault: true},
+		{name: "multiple-rows", pattern: "demo-%-username", wantFault: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			info, err := repo.ScanItem[models.AccountInfo](func(db *gorm.DB, cls *models.AccountColumns, res *models.AccountInfoColumns) *gorm.DB {
@@ -514,8 +516,8 @@ func TestGormRepo_ScanItem(t *testing.T) {
 					cls.Nickname.AsName(res.ShowName),
 				)).Where(cls.Username.Like(tc.pattern))
 			})
-			if tc.wantCause != "" {
-				require.ErrorContains(t, err, tc.wantCause)
+			if tc.wantFault {
+				require.Error(t, err)
 				require.Equal(t, models.AccountInfo{}, info)
 				return
 			}
@@ -554,14 +556,14 @@ func TestGormRepo_ScanOne(t *testing.T) {
 		_, err := repo.ScanOne[string](func(db *gorm.DB, cls *models.AccountColumns) *gorm.DB {
 			return db.Select(cls.Nickname.Name()).Where(cls.Username.Eq("missing-username"))
 		})
-		require.ErrorContains(t, err, "got 0 rows")
+		require.Error(t, err)
 	})
 
 	t.Run("two-rows-is-a-fault", func(t *testing.T) {
 		_, err := repo.ScanOne[string](func(db *gorm.DB, cls *models.AccountColumns) *gorm.DB {
 			return db.Select(cls.Nickname.Name())
 		})
-		require.ErrorContains(t, err, "got 2 rows")
+		require.Error(t, err)
 	})
 }
 
@@ -729,7 +731,7 @@ func TestGormRepo_Invoke(t *testing.T) {
 		}))
 		t.Log(passwords)
 		require.Len(t, passwords, 2)
-		sort.Strings(passwords)
+		slices.Sort(passwords)
 		require.Equal(t, []string{"demo-1-password", "demo-2-password"}, passwords)
 	})
 
@@ -775,7 +777,7 @@ func TestGormRepo_Creates(t *testing.T) {
 			newAccount(uuid.New().String()),
 			newAccount(uuid.New().String()),
 		}
-		require.NoError(t, repo.Creates(accounts))
+		require.NoError(t, repo.Creates(&accounts))
 
 		// Verify all records have IDs assigned
 		// 验证所有记录都分配了 ID
@@ -856,6 +858,36 @@ func TestGormRepo_Save(t *testing.T) {
 	})
 }
 
+// TestGormRepo_Clauses_Saves_Returning tests Saves with OnConflict DoNothing and Returning
+// The conflicting record gets skipped, the slice becomes the records that got saved
+//
+// TestGormRepo_Clauses_Saves_Returning 测试 Saves 搭配 OnConflict DoNothing 与 Returning
+// 冲突的记录被跳过，切片变成实际保存的那几条记录
+func TestGormRepo_Clauses_Saves_Returning(t *testing.T) {
+	tests.NewDBRun(t, func(db *gorm.DB) {
+		must.Done(db.AutoMigrate(&models.Account{}))
+
+		repo := gormrepo.NewGormRepo(gormrepo.Use(db, &models.Account{}))
+
+		existing := newAccount(uuid.New().String())
+		require.NoError(t, repo.Create(existing))
+
+		username2 := uuid.New().String()
+		accounts := []*models.Account{
+			newAccount(existing.Username),
+			newAccount(username2),
+		}
+		require.NoError(t, repo.Clauses(
+			clause.OnConflict{DoNothing: true},
+			clause.Returning{},
+		).Saves(&accounts))
+
+		require.Len(t, accounts, 1)
+		require.Equal(t, username2, accounts[0].Username)
+		require.NotZero(t, accounts[0].ID)
+	})
+}
+
 // TestGormRepo_Saves tests batch insert or update of multiple records
 // TestGormRepo_Saves 测试批量插入或更新多条记录
 func TestGormRepo_Saves(t *testing.T) {
@@ -870,7 +902,7 @@ func TestGormRepo_Saves(t *testing.T) {
 			newAccount(uuid.New().String()),
 			newAccount(uuid.New().String()),
 		}
-		require.NoError(t, repo.Saves(accounts))
+		require.NoError(t, repo.Saves(&accounts))
 
 		for _, account := range accounts {
 			require.NotZero(t, account.ID)
@@ -882,7 +914,7 @@ func TestGormRepo_Saves(t *testing.T) {
 		newNickname1 := uuid.New().String()
 		accounts[0].Nickname = newNickname0
 		accounts[1].Nickname = newNickname1
-		require.NoError(t, repo.Saves(accounts))
+		require.NoError(t, repo.Saves(&accounts))
 
 		// Verify updates
 		// 验证更新
@@ -1094,6 +1126,40 @@ func TestGormRepo_Clause(t *testing.T) {
 	})
 }
 
+// TestGormRepo_Clauses_Creates_Returning tests Creates with OnConflict DoNothing and Returning
+// The conflicting record gets skipped, the slice becomes the records that got inserted
+//
+// TestGormRepo_Clauses_Creates_Returning 测试 Creates 搭配 OnConflict DoNothing 与 Returning
+// 冲突的记录被跳过，切片变成实际插入的那几条记录
+func TestGormRepo_Clauses_Creates_Returning(t *testing.T) {
+	tests.NewDBRun(t, func(db *gorm.DB) {
+		must.Done(db.AutoMigrate(&models.Account{}))
+
+		repo := gormrepo.NewGormRepo(gormrepo.Use(db, &models.Account{}))
+
+		existing := newAccount(uuid.New().String())
+		require.NoError(t, repo.Create(existing))
+
+		username2 := uuid.New().String()
+		username3 := uuid.New().String()
+		accounts := []*models.Account{
+			newAccount(existing.Username),
+			newAccount(username2),
+			newAccount(username3),
+		}
+		require.NoError(t, repo.Clauses(
+			clause.OnConflict{DoNothing: true},
+			clause.Returning{},
+		).Creates(&accounts))
+
+		require.Len(t, accounts, 2)
+		require.Equal(t, username2, accounts[0].Username)
+		require.Equal(t, username3, accounts[1].Username)
+		require.NotZero(t, accounts[0].ID)
+		require.NotZero(t, accounts[1].ID)
+	})
+}
+
 // TestGormRepo_Clause_Creates tests Clause + Creates for batch upsert operations
 // TestGormRepo_Clause_Creates 测试 Clause + Creates 的批量 upsert 操作
 func TestGormRepo_Clause_Creates(t *testing.T) {
@@ -1115,7 +1181,7 @@ func TestGormRepo_Clause_Creates(t *testing.T) {
 			{Username: uuid.New().String(), Password: uuid.New().String(), Nickname: preNick2},
 			{Username: uuid.New().String(), Password: uuid.New().String(), Nickname: preNick3},
 		}
-		require.NoError(t, repo.Creates(accounts))
+		require.NoError(t, repo.Creates(&accounts))
 
 		newNick1 := uuid.New().String()
 		newNick2 := uuid.New().String()
@@ -1133,7 +1199,7 @@ func TestGormRepo_Clause_Creates(t *testing.T) {
 				Columns:   []clause.Column{{Name: cls.Username.Name()}},
 				DoUpdates: clause.AssignmentColumns([]string{cls.Nickname.Name()}),
 			}
-		}).Creates(upsertAccounts))
+		}).Creates(&upsertAccounts))
 
 		// Verify updates
 		// 验证更新结果

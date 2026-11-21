@@ -22,9 +22,11 @@ type Join[MOD1 any, CLS1 any, MOD2 any, CLS2 any] struct {
 
 // New joins repo2 onto repo1 with the given join type, each type is inferred from the repos
 // The columns passed to onFunc come with the table name, multiple conditions are joined with AND
+// A CROSS JOIN takes no ON condition, use CrossJoin on it
 //
 // New 用指定的连接类型把 repo2 连到 repo1 上，类型都由两个 repo 推断
 // 传给 onFunc 的列都带表名，多个条件用 AND 连接
+// CROSS JOIN 不带连接条件，请用 CrossJoin
 func New[MOD1 any, CLS1 any, MOD2 any, CLS2 any](repo1 *gormtablerepo.Repo[MOD1, CLS1], joinType clause.JoinType, repo2 *gormtablerepo.Repo[MOD2, CLS2], onFunc func(cls1 CLS1, cls2 CLS2) []string) *Join[MOD1, CLS1, MOD2, CLS2] {
 	return &Join[MOD1, CLS1, MOD2, CLS2]{
 		repo1:        repo1,
@@ -52,10 +54,30 @@ func InnerJoin[MOD1 any, CLS1 any, MOD2 any, CLS2 any](repo1 *gormtablerepo.Repo
 	return New(repo1, clause.InnerJoin, repo2, onFunc)
 }
 
+// CrossJoin joins repo2 onto repo1 with CROSS JOIN, each row of repo1 pairs with each row of repo2
+// It takes no onFunc: standard SQL has no ON condition on a CROSS JOIN, and PostgreSQL rejects CROSS JOIN ... ON
+//
+// CrossJoin 用 CROSS JOIN 把 repo2 连到 repo1 上，repo1 的每一行跟 repo2 的每一行各配一次
+// 它不收 onFunc：标准 SQL 的 CROSS JOIN 不带 ON 条件，PostgreSQL 不认 CROSS JOIN ... ON
+func CrossJoin[MOD1 any, CLS1 any, MOD2 any, CLS2 any](repo1 *gormtablerepo.Repo[MOD1, CLS1], repo2 *gormtablerepo.Repo[MOD2, CLS2]) *Join[MOD1, CLS1, MOD2, CLS2] {
+	return &Join[MOD1, CLS1, MOD2, CLS2]{
+		repo1:    repo1,
+		joinType: clause.CrossJoin,
+		repo2:    repo2,
+	}
+}
+
 // Stmt returns the JOIN statement to pass to db.Joins, e.g. "LEFT JOIN scores ON scores.student_id=students.id"
+// With no ON condition the statement has no ON part, e.g. "CROSS JOIN scores"
+//
 // Stmt 返回传给 db.Joins 的 JOIN 语句，例如 "LEFT JOIN scores ON scores.student_id=students.id"
+// 没有连接条件时不带 ON 部分，例如 "CROSS JOIN scores"
 func (jo *Join[MOD1, CLS1, MOD2, CLS2]) Stmt() string {
-	return string(jo.joinType) + " JOIN " + jo.repo2.GetTableName() + " ON " + strings.Join(jo.onConditions, " AND ")
+	stmt := string(jo.joinType) + " JOIN " + jo.repo2.TableName()
+	if len(jo.onConditions) == 0 {
+		return stmt
+	}
+	return stmt + " ON " + strings.Join(jo.onConditions, " AND ")
 }
 
 // Names returns the column names to select from the two tables, aliased to the RES columns with type checks

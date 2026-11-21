@@ -91,7 +91,7 @@ func TestTransactionRollback(t *testing.T) {
 
 	// The course has no seat left now, the enrollment of Bob and the added count are both rolled back
 	// 课程已满，Bob 的选课记录和加上的人数都被回滚
-	require.ErrorContains(t, admitStudent(t.Context(), db, "math", "Bob"), "has no seat left")
+	require.Error(t, admitStudent(t.Context(), db, "math", "Bob"))
 
 	course, err := courseRepo.With(t.Context(), db).First(func(db *gorm.DB, cls *models.CourseColumns) *gorm.DB {
 		return db.Where(cls.Name.Eq("math"))

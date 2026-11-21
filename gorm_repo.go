@@ -361,10 +361,14 @@ func (repo *GormRepo[MOD, CLS]) Create(one *MOD) error {
 
 // Creates inserts multiple records into the database in batch
 // All records' primary keys will be populated after creation
+// Takes the address of the slice, as db.Create(&users) does in GORM: with clause.Returning GORM rewrites the slice
+// into the records the database returned, e.g. with OnConflict DoNothing the slice shrinks to the inserted records
 //
 // Creates 批量向数据库插入多条记录
 // 创建后所有记录的主键将被填充
-func (repo *GormRepo[MOD, CLS]) Creates(ones []*MOD) error {
+// 参数是切片的地址，跟 GORM 的 db.Create(&users) 一致：搭配 clause.Returning 时 GORM 会把切片改写成数据库返回的记录，
+// 例如再配上 OnConflict DoNothing，切片就缩成实际插入的那几条
+func (repo *GormRepo[MOD, CLS]) Creates(ones *[]*MOD) error {
 	if err := repo.db.Create(ones).Error; err != nil {
 		return err
 	}
@@ -373,9 +377,13 @@ func (repo *GormRepo[MOD, CLS]) Creates(ones []*MOD) error {
 
 // CreateInBatches inserts records in batches to reduce database and memory pressure
 // Uses batchSize to control records per batch, suitable for large data insertion
+// Takes the slice itself, as GORM does: GORM writes each batch back into the same positions and does not change the length,
+// so with OnConflict DoNothing plus clause.Returning the skipped records remain in the slice, use Creates when the inserted records are wanted
 //
 // CreateInBatches 分批插入记录以减少数据库和内存压力
 // 使用 batchSize 控制每批的记录数，适合大量数据插入
+// 参数是切片本身，跟 GORM 一致：GORM 把每批结果写回原位置，不改切片长度，
+// 所以 OnConflict DoNothing 搭配 clause.Returning 时被跳过的记录还留在切片里，要拿到实际插入的记录请用 Creates
 func (repo *GormRepo[MOD, CLS]) CreateInBatches(ones []*MOD, batchSize int) error {
 	if err := repo.db.CreateInBatches(ones, batchSize).Error; err != nil {
 		return err
@@ -397,10 +405,12 @@ func (repo *GormRepo[MOD, CLS]) Save(one *MOD) error {
 
 // Saves inserts or updates multiple records based on primary keys
 // For each record: if primary key is zero value, creates new; otherwise updates existing
+// Takes the address of the slice, same as Creates
 //
 // Saves 根据主键批量插入或更新多条记录
 // 对于每条记录：如果主键是零值，创建新记录；否则更新现有记录
-func (repo *GormRepo[MOD, CLS]) Saves(ones []*MOD) error {
+// 参数是切片的地址，跟 Creates 一致
+func (repo *GormRepo[MOD, CLS]) Saves(ones *[]*MOD) error {
 	if err := repo.db.Save(ones).Error; err != nil {
 		return err
 	}

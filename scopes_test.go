@@ -82,6 +82,25 @@ func TestPagination_Scope(t *testing.T) {
 	require.Equal(t, "demo-2-username", accounts[0].Username) // Offset 1 skips demo-1 // Offset 1 跳过 demo-1
 }
 
+// TestPagination_ScopeZeroLimit checks a Pagination with Limit left out gets an error from the scopes, the same as in FindPage
+// TestPagination_ScopeZeroLimit 验证忘了填 Limit 的 Pagination 走 scope 时也报错，跟 FindPage 一致
+func TestPagination_ScopeZeroLimit(t *testing.T) {
+	db := tests.NewMemDB(t)
+	createDemoAccounts(t, db)
+
+	repo := gormrepo.NewBaseRepo(gormclass.Use(&models.Account{}))
+	page := &gormrepo.Pagination{Offset: 0}
+
+	var accounts []*models.Account
+	require.Error(t, db.Scopes(page.Scope()).Find(&accounts).Error)
+	require.Empty(t, accounts)
+
+	require.Error(t, db.Scopes(repo.NewPaginateScope(func(cls *models.AccountColumns) gormcnm.Ordering {
+		return cls.ID.Ob("asc")
+	}, page)).Find(&accounts).Error)
+	require.Empty(t, accounts)
+}
+
 // TestBaseRepo_NewPaginateScope tests NewPaginateScope with sorting and pagination
 // TestBaseRepo_NewPaginateScope 测试带排序和分页的 NewPaginateScope 方法
 func TestBaseRepo_NewPaginateScope(t *testing.T) {

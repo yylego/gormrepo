@@ -22,10 +22,10 @@ func NewRepo[MOD any, CLS any](_ *MOD, tableName string, tbColumns CLS) *Repo[MO
 	}
 }
 
-// GetTableName returns the table name
+// TableName returns the table name, the same method name as in the GORM schema.Tabler
 //
-// GetTableName 返回表名
-func (repo *Repo[MOD, CLS]) GetTableName() string {
+// TableName 返回表名，方法名跟 GORM 的 schema.Tabler 一致
+func (repo *Repo[MOD, CLS]) TableName() string {
 	return repo.tableName
 }
 

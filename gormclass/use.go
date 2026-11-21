@@ -30,7 +30,7 @@ func Msc[MOD ColumnsInterface[CLS], CLS any](one MOD) (MOD, []MOD, CLS) {
 	return one, []MOD{}, one.Columns()
 }
 
-// Nsc returns the data (`mod`), a slice of records (`[]MOD`) with a specified starting size, and the associated columns (`cls`),
+// Nsc returns the data (`mod`), a slice of records (`[]MOD`) with a specified starting size, and the associated columns (`cls`).
 // Nsc 返回数据（`mod`）、具有指定起始容量的记录切片（`[]MOD`）和关联的列（`cls`）。
 func Nsc[MOD ColumnsInterface[CLS], CLS any](one MOD, cap int) (MOD, []MOD, CLS) {
 	return one, make([]MOD, 0, cap), one.Columns()

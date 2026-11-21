@@ -54,7 +54,7 @@ type Pagination struct {
 // Limit 为 -1 是合法的，GORM 当作不限条数
 func (p *Pagination) validate() error {
 	if p == nil {
-		return errors.New("pagination is nil")
+		return errors.New("pagination is missing")
 	}
 	if p.Limit == 0 {
 		return errors.New("pagination limit is 0, which gives no rows, use -1 to get each row")
@@ -64,22 +64,28 @@ func (p *Pagination) validate() error {
 
 // Scope creates a GORM scope function that applies pagination parameters
 // Returns a ScopeFunction that sets limit and offset during pagination
+// A missing Pagination and Limit 0 put an error on the db, the same check as in FindPage
 //
 // Scope 创建应用分页参数的 GORM scope 函数
 // 返回在分页时设置 limit 和 offset 的 ScopeFunction
+// Pagination 没传或 Limit 为 0 时把错误放到 db 上，跟 FindPage 是同一个检查
 func (p *Pagination) Scope() ScopeFunction {
 	return func(db *gorm.DB) *gorm.DB {
+		if err := p.validate(); err != nil {
+			_ = db.AddError(err)
+			return db
+		}
 		return db.Limit(p.Limit).Offset(p.Offset)
 	}
 }
 
 // NewPaginateScope creates a GORM scope function that applies pagination and ordering
-// Combines ordering with limit and offset in a single scope
+// Combines ordering with limit and offset in a single scope, the page goes through the same check as in Pagination.Scope
 //
 // NewPaginateScope 创建应用分页和排序的 GORM scope 函数
-// 在单个 scope 中组合排序、limit 和 offset
+// 在单个 scope 中组合排序、limit 和 offset，分页参数的检查跟 Pagination.Scope 相同
 func (repo *BaseRepo[MOD, CLS]) NewPaginateScope(ordering func(cls CLS) gormcnm.Ordering, page *Pagination) ScopeFunction {
 	return func(db *gorm.DB) *gorm.DB {
-		return db.Order(ordering(repo.cls).Ox()).Limit(page.Limit).Offset(page.Offset)
+		return page.Scope()(db.Order(ordering(repo.cls).Ox()))
 	}
 }

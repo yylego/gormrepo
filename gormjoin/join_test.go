@@ -184,6 +184,31 @@ func TestInnerJoin(t *testing.T) {
 	}, rows)
 }
 
+// TestCrossJoin tests CrossJoin, which takes no ON condition: each student pairs with each course
+// TestCrossJoin 测试 CrossJoin，它不带连接条件：每个学生跟每门课各配一行
+func TestCrossJoin(t *testing.T) {
+	join := gormjoin.CrossJoin(studentRepo, courseRepo)
+	require.Equal(t, "CROSS JOIN courses", join.Stmt())
+
+	var rows []models.StudentCourse
+	require.NoError(t, caseDB.Model(&models.Student{}).Joins(join.Stmt()).
+		Select(join.Names[models.StudentCourse](func(student *models.StudentColumns, course *models.CourseColumns, res *models.StudentCourseColumns) []string {
+			return []string{
+				student.Name.AsName(res.StudentName),
+				course.Subject.AsName(res.Subject),
+				course.CoachName.AsName(res.CoachName),
+			}
+		})).
+		Scopes(studentRepo.Base().NewScope(func(db *gorm.DB, cls *models.StudentColumns) *gorm.DB {
+			return db.Order(cls.ID.Asc())
+		})).
+		Scan(&rows).Error)
+	require.Equal(t, []models.StudentCourse{
+		{StudentName: "student-1", Subject: "math", CoachName: "coach-a"},
+		{StudentName: "student-2", Subject: "math", CoachName: "coach-a"},
+	}, rows)
+}
+
 func TestJoin_Stmt(t *testing.T) {
 	join := gormjoin.LeftJoin(studentRepo, scoreRepo, func(student *models.StudentColumns, score *models.ScoreColumns) []string {
 		return []string{score.StudentID.OnEq(student.ID)}

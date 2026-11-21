@@ -45,8 +45,8 @@ func TestGormWrap_Repo(t *testing.T) {
 	require.Equal(t, "demo-1-nickname", res.Nickname)
 }
 
-// TestGormRepo_Modeledtests setting default MOD template on GormRepo
-// TestGormRepo_Modeled测试在 GormRepo 上设置默认 MOD 模板
+// TestGormRepo_Modeled tests Modeled, which applies db.Model(new(MOD)) on GormRepo
+// TestGormRepo_Modeled 测试在 GormRepo 上把 MOD 设为 GORM 模型
 func TestGormRepo_Modeled(t *testing.T) {
 	db := tests.NewMemDB(t)
 	defer rese.F0(rese.P1(db.DB()).Close)
@@ -74,8 +74,8 @@ func TestGormRepo_Modeled(t *testing.T) {
 	})
 }
 
-// TestGormWrap_Modeledtests setting default MOD template on GormWrap
-// TestGormWrap_Modeled测试在 GormWrap 上设置默认 MOD 模板
+// TestGormWrap_Modeled tests Modeled, which applies db.Model(new(MOD)) on GormWrap
+// TestGormWrap_Modeled 测试在 GormWrap 上把 MOD 设为 GORM 模型
 func TestGormWrap_Modeled(t *testing.T) {
 	db := tests.NewMemDB(t)
 	defer rese.F0(rese.P1(db.DB()).Close)

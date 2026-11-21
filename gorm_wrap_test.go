@@ -80,9 +80,11 @@ func TestGormWrap_Find(t *testing.T) {
 
 	var accounts []*models.Account
 	require.NoError(t, repo.Find(func(db *gorm.DB, cls *models.AccountColumns) *gorm.DB {
-		return db.Where(cls.Username.Like("demo-%-username"))
+		return db.Where(cls.Username.Like("demo-%-username")).Order(cls.Username.Asc())
 	}, &accounts).Error)
-	require.NotEmpty(t, accounts)
+	require.Len(t, accounts, 2)
+	require.Equal(t, "demo-1-username", accounts[0].Username)
+	require.Equal(t, "demo-2-username", accounts[1].Username)
 	t.Log(neatjsons.S(accounts))
 }
 
@@ -290,7 +292,7 @@ func TestGormWrap_Creates(t *testing.T) {
 			newAccount(uuid.New().String()),
 			newAccount(uuid.New().String()),
 		}
-		require.NoError(t, repo.Creates(accounts).Error)
+		require.NoError(t, repo.Creates(&accounts).Error)
 
 		// Verify all records have IDs assigned
 		// 验证所有记录都分配了 ID
@@ -371,6 +373,38 @@ func TestGormWrap_Save(t *testing.T) {
 	})
 }
 
+// TestGormWrap_Clauses_Saves_Returning tests Saves with OnConflict DoNothing and Returning
+// The conflicting record gets skipped, the slice becomes the records that got saved
+//
+// TestGormWrap_Clauses_Saves_Returning 测试 Saves 搭配 OnConflict DoNothing 与 Returning
+// 冲突的记录被跳过，切片变成实际保存的那几条记录
+func TestGormWrap_Clauses_Saves_Returning(t *testing.T) {
+	tests.NewDBRun(t, func(db *gorm.DB) {
+		must.Done(db.AutoMigrate(&models.Account{}))
+
+		repo := gormrepo.NewGormWrap(gormrepo.Use(db, &models.Account{}))
+
+		existing := newAccount(uuid.New().String())
+		require.NoError(t, repo.Create(existing).Error)
+
+		username2 := uuid.New().String()
+		accounts := []*models.Account{
+			newAccount(existing.Username),
+			newAccount(username2),
+		}
+		res := repo.Clauses(
+			clause.OnConflict{DoNothing: true},
+			clause.Returning{},
+		).Saves(&accounts)
+		require.NoError(t, res.Error)
+		require.Equal(t, int64(1), res.RowsAffected)
+
+		require.Len(t, accounts, 1)
+		require.Equal(t, username2, accounts[0].Username)
+		require.NotZero(t, accounts[0].ID)
+	})
+}
+
 // TestGormWrap_Saves tests batch insert or update of multiple records
 // TestGormWrap_Saves 测试批量插入或更新多条记录
 func TestGormWrap_Saves(t *testing.T) {
@@ -385,7 +419,7 @@ func TestGormWrap_Saves(t *testing.T) {
 			newAccount(uuid.New().String()),
 			newAccount(uuid.New().String()),
 		}
-		require.NoError(t, repo.Saves(accounts).Error)
+		require.NoError(t, repo.Saves(&accounts).Error)
 
 		for _, account := range accounts {
 			require.NotZero(t, account.ID)
@@ -397,7 +431,7 @@ func TestGormWrap_Saves(t *testing.T) {
 		newNickname1 := uuid.New().String()
 		accounts[0].Nickname = newNickname0
 		accounts[1].Nickname = newNickname1
-		require.NoError(t, repo.Saves(accounts).Error)
+		require.NoError(t, repo.Saves(&accounts).Error)
 
 		// Verify updates
 		// 验证更新
@@ -607,6 +641,42 @@ func TestGormWrap_Clause(t *testing.T) {
 	})
 }
 
+// TestGormWrap_Clauses_Creates_Returning tests Creates with OnConflict DoNothing and Returning
+// The conflicting record gets skipped, the slice becomes the records that got inserted
+//
+// TestGormWrap_Clauses_Creates_Returning 测试 Creates 搭配 OnConflict DoNothing 与 Returning
+// 冲突的记录被跳过，切片变成实际插入的那几条记录
+func TestGormWrap_Clauses_Creates_Returning(t *testing.T) {
+	tests.NewDBRun(t, func(db *gorm.DB) {
+		must.Done(db.AutoMigrate(&models.Account{}))
+
+		repo := gormrepo.NewGormWrap(gormrepo.Use(db, &models.Account{}))
+
+		existing := newAccount(uuid.New().String())
+		require.NoError(t, repo.Create(existing).Error)
+
+		username2 := uuid.New().String()
+		username3 := uuid.New().String()
+		accounts := []*models.Account{
+			newAccount(existing.Username),
+			newAccount(username2),
+			newAccount(username3),
+		}
+		res := repo.Clauses(
+			clause.OnConflict{DoNothing: true},
+			clause.Returning{},
+		).Creates(&accounts)
+		require.NoError(t, res.Error)
+		require.Equal(t, int64(2), res.RowsAffected)
+
+		require.Len(t, accounts, 2)
+		require.Equal(t, username2, accounts[0].Username)
+		require.Equal(t, username3, accounts[1].Username)
+		require.NotZero(t, accounts[0].ID)
+		require.NotZero(t, accounts[1].ID)
+	})
+}
+
 // TestGormWrap_Clause_Creates tests Clause + Creates for batch upsert operations
 // TestGormWrap_Clause_Creates 测试 Clause + Creates 的批量 upsert 操作
 func TestGormWrap_Clause_Creates(t *testing.T) {
@@ -628,7 +698,7 @@ func TestGormWrap_Clause_Creates(t *testing.T) {
 			{Username: uuid.New().String(), Password: uuid.New().String(), Nickname: preNick2},
 			{Username: uuid.New().String(), Password: uuid.New().String(), Nickname: preNick3},
 		}
-		require.NoError(t, repo.Creates(accounts).Error)
+		require.NoError(t, repo.Creates(&accounts).Error)
 
 		newNick1 := uuid.New().String()
 		newNick2 := uuid.New().String()
@@ -646,7 +716,7 @@ func TestGormWrap_Clause_Creates(t *testing.T) {
 				Columns:   []clause.Column{{Name: cls.Username.Name()}},
 				DoUpdates: clause.AssignmentColumns([]string{cls.Nickname.Name()}),
 			}
-		}).Creates(upsertAccounts).Error)
+		}).Creates(&upsertAccounts).Error)
 
 		// Verify updates
 		// 验证更新结果

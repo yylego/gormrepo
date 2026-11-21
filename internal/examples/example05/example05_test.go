@@ -46,10 +46,15 @@ func TestCreate(t *testing.T) {
 	require.NoError(t, repo.Create(alice))
 	require.NotZero(t, alice.ID)
 
-	require.NoError(t, repo.Creates([]*models.Student{
+	// Creates takes the address of the slice, as db.Create(&students) does in GORM, and fills the IDs back too
+	// Creates 传切片的地址，跟 GORM 的 db.Create(&students) 一样，同样会回填 ID
+	students := []*models.Student{
 		{Name: "Bob", Grade: "grade-1", Score: 75},
 		{Name: "Chloe", Grade: "grade-2", Score: 80},
-	}))
+	}
+	require.NoError(t, repo.Creates(&students))
+	require.NotZero(t, students[0].ID)
+	require.NotZero(t, students[1].ID)
 
 	// CreateInBatches inserts a batch of rows, batchSize rows each SQL
 	// CreateInBatches 批量插入，每条 SQL 插 batchSize 行
@@ -86,10 +91,11 @@ func TestSave(t *testing.T) {
 
 func TestUpdate(t *testing.T) {
 	repo := studentRepo.With(t.Context(), newCaseDB(t))
-	require.NoError(t, repo.Creates([]*models.Student{
+	students := []*models.Student{
 		{Name: "Alice", Grade: "grade-1", Score: 90},
 		{Name: "Bob", Grade: "grade-1", Score: 75},
-	}))
+	}
+	require.NoError(t, repo.Creates(&students))
 
 	// One column
 	// 更新一列

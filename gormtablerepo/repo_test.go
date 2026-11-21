@@ -22,9 +22,9 @@ func TestNewRepo(t *testing.T) {
 	require.NotNil(t, repo)
 }
 
-func TestRepo_GetTableName(t *testing.T) {
+func TestRepo_TableName(t *testing.T) {
 	repo := gormtablerepo.NewRepo(gormclass.UseTable(&models.Student{}))
-	require.Equal(t, "students", repo.GetTableName())
+	require.Equal(t, "students", repo.TableName())
 }
 
 func TestRepo_TableColumns(t *testing.T) {

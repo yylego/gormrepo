@@ -11,7 +11,7 @@
 
 # 🚀 gormrepo - 基于 GORM 的类型安全 Repo
 
-**gormrepo** 用泛型 repo 包装 GORM：查询条件、排序、新值都用 gormcngen 生成的列来写，列名或值的类型写错了，编译就过不去。
+**gormrepo** 用泛型 repo 包装 GORM：查询条件、排序、新值都用 gormcngen 生成的列来写，列名或值的类型写错，编译就过不去。
 
 > 🌟 **回调拿到的是原生的 `*gorm.DB`，回调里写的就是原生 GORM 代码**
 
@@ -316,6 +316,10 @@ err := db.Create(&Account{Username: "bob", Nickname: "Bob", Age: 25}).Error
 // gormrepo
 err := repo.With(ctx, db).Create(&Account{Username: "bob", Nickname: "Bob", Age: 25})
 
+// gormrepo - Creates（传切片的地址，跟 GORM 的 db.Create(&accounts) 一样）
+accounts := []*Account{{Username: "chloe"}, {Username: "david"}}
+err := repo.With(ctx, db).Creates(&accounts)
+
 // gormrepo - CreateInBatches（插入很多条，每条 SQL 插 batchSize 条）
 err := repo.With(ctx, db).CreateInBatches(accounts, 100)
 ```
@@ -325,10 +329,12 @@ err := repo.With(ctx, db).CreateInBatches(accounts, 100)
 | 方法              | 参数                     | 返回值  | 描述               |
 | ----------------- | ------------------------ | ------- | ------------------ |
 | `Create`          | `one *MOD`               | `error` | 创建新记录         |
-| `Creates`         | `ones []*MOD`            | `error` | 批量创建记录       |
+| `Creates`         | `ones *[]*MOD`           | `error` | 批量创建记录       |
 | `CreateInBatches` | `ones []*MOD, batchSize` | `error` | 分批创建记录       |
 | `Save`            | `one *MOD`               | `error` | 插入或更新记录     |
-| `Saves`           | `ones []*MOD`            | `error` | 批量插入或更新记录 |
+| `Saves`           | `ones *[]*MOD`           | `error` | 批量插入或更新记录 |
+
+`Creates` 和 `Saves` 传的是切片的地址：搭配 `clause.Returning{}` 时 GORM 会把切片改写成数据库返回的记录，例如再配上 `OnConflict{DoNothing: true}`，切片就缩成实际插入的那几条。`CreateInBatches` 传切片本身，长度不变，要拿到实际插入的记录请用 `Creates`。
 
 #### 6. 更新记录
 
@@ -429,35 +435,43 @@ err := repo.With(ctx, db).DeleteM(account, func(db *gorm.DB, cls *AccountColumns
 
 #### 8. 自定义操作
 
-遇到未涵盖的操作，使用 `Invoke`：
+遇到未涵盖的操作，使用 `Invoke`（整条 GORM 链都写在回调里）或 `Where`（返回带上条件的 `*gorm.DB`）。这两个方法拿到的 `*gorm.DB` 没有设置 `Model`，链的末尾是 `Update` / `Updates` / `Count` / `Pluck` 这类需要知道表的操作时，先调用 `Modeled()`（等同于 `db.Model(&Account{})`）：
 
 ```go
 // Invoke - 批量更新
-err := repo.With(ctx, db).Invoke(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+err := repo.With(ctx, db).Modeled().Invoke(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
     return db.Where(cls.Age.Gte(18)).Update(cls.Nickname.Name(), "adult")
 })
 
 // Invoke - 字段自增
-err := repo.With(ctx, db).Invoke(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+err := repo.With(ctx, db).Modeled().Invoke(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
     return db.Where(cls.ID.Eq(1)).
         Update(cls.Age.Name(), gorm.Expr(cls.Age.Name()+" + ?", 1))
 })
 
 // Invoke - 复杂条件
-err := repo.With(ctx, db).Invoke(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+err := repo.With(ctx, db).Modeled().Invoke(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
     return db.Where(cls.Age.Between(18, 60)).
         Where(cls.Nickname.IsNotNull()).
         Updates(map[string]any{
             cls.Nickname.Name(): "active",
         })
 })
+
+// Where - 拿到带上条件的 *gorm.DB，接着写原生 GORM
+var count int64
+err := repo.With(ctx, db).Modeled().Where(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+    return db.Where(cls.Age.Gte(18))
+}).Count(&count).Error
 ```
 
 #### 调用操作
 
-| 方法     | 参数                                      | 返回值  | 描述           |
-| -------- | ----------------------------------------- | ------- | -------------- |
-| `Invoke` | `run func(db *gorm.DB, cls CLS) *gorm.DB` | `error` | 执行自定义操作 |
+| 方法      | 参数                                        | 返回值      | 描述                                |
+| --------- | ------------------------------------------- | ----------- | ----------------------------------- |
+| `Invoke`  | `run func(db *gorm.DB, cls CLS) *gorm.DB`   | `error`     | 执行自定义操作                      |
+| `Where`   | `where func(db *gorm.DB, cls CLS) *gorm.DB` | `*gorm.DB`  | 应用条件，返回原生 db               |
+| `Modeled` | (无)                                        | `*GormRepo` | 设好 `db.Model(new(MOD))` 的新 repo |
 
 #### 9. 使用 Clauses 实现 Upsert
 
@@ -491,7 +505,7 @@ err := repo.With(ctx, db).Clause(func(cls *AccountColumns) clause.Expression {
         Columns:   []clause.Column{{Name: cls.Username.Name()}},
         DoUpdates: clause.AssignmentColumns([]string{cls.Nickname.Name()}),
     }
-}).Creates(accounts)
+}).Creates(&accounts)
 ```
 
 #### 子句操作
@@ -585,9 +599,49 @@ err := db.Model(&Student{}).
 | 函数 / 方法                            | 参数                                      | 返回       | 说明                       |
 | -------------------------------------- | ----------------------------------------- | ---------- | -------------------------- |
 | `LeftJoin` / `RightJoin` / `InnerJoin` | `repo1, repo2, func(cls1, cls2) []string` | `*Join`    | 把 repo2 连到 repo1 上     |
+| `CrossJoin`                            | `repo1, repo2`                            | `*Join`    | CROSS JOIN，不带连接条件   |
 | `New`                                  | `repo1, joinType, repo2, onFunc`          | `*Join`    | 指定连接类型               |
 | `(*Join).Stmt`                         | (无)                                      | `string`   | JOIN 语句，传给 `db.Joins` |
 | `(*Join).Names[RES]`                   | `func(cls1, cls2, res) []string`          | `[]string` | 要选的列，传给 `db.Select` |
+
+标准 SQL 的 CROSS JOIN 不带 ON 条件（PostgreSQL 不认 `CROSS JOIN ... ON`），所以 `CrossJoin` 只传两个 repo：
+
+```go
+join := gormjoin.CrossJoin(studentRepo, scoreRepo)
+// join.Stmt() 得到：CROSS JOIN scores
+```
+
+#### 13. GormWrap（返回 `*gorm.DB`）
+
+`repo.With(ctx, db)` / `repo.Repo(db)` 得到 `GormRepo`，方法返回 `(结果, error)`。`repo.Wrap(ctx, db)` / `repo.Gorm(db)` 得到 `GormWrap`：参数相同，每个方法跟 GORM 一样返回 `*gorm.DB`，可以直接读 `RowsAffected`；它的 `First` / `Find` 跟 GORM 一样传入 dest。`GormWrap` 只对应 GORM 自己的方法，额外的便利（`FindO`、`FindC`、`Count`、`Exist`、`Pluck`、`Scan...`）都在 `GormRepo` 上：
+
+```go
+res := repo.Wrap(ctx, db).Update(
+    func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+        return db.Where(cls.Age.Gte(18))
+    },
+    func(cls *AccountColumns) (string, any) {
+        return cls.Nickname.Kv("adult")
+    },
+)
+// res.Error, res.RowsAffected
+
+var accounts []*Account
+err := repo.Wrap(ctx, db).Find(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+    return db.Where(cls.Age.Gte(18))
+}, &accounts).Error
+```
+
+| 方法                        | 所属                    | 返回值                    | 描述                    |
+| --------------------------- | ----------------------- | ------------------------- | ----------------------- |
+| `With(ctx, db)`             | `Repo`                  | `*GormRepo`               | 带上下文和 db 的 repo   |
+| `Repo(db)`                  | `Repo`                  | `*GormRepo`               | 带 db 的 repo           |
+| `Wrap(ctx, db)`             | `Repo`                  | `*GormWrap`               | 带上下文和 db 的 wrap   |
+| `Gorm(db)`                  | `Repo`                  | `*GormWrap`               | 带 db 的 wrap           |
+| `Gorm()` / `Repo()`         | `GormRepo` / `GormWrap` | `*GormWrap` / `*GormRepo` | 两种形态互转            |
+| `WithContext(ctx)`          | `GormRepo` / `GormWrap` | 类型不变                  | 设置上下文              |
+| `First(where, dest *MOD)`   | `GormWrap`              | `*gorm.DB`                | 第一条匹配记录写入 dest |
+| `Find(where, dest *[]*MOD)` | `GormWrap`              | `*gorm.DB`                | 匹配的记录写入 dest     |
 
 ---
 

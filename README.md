@@ -316,6 +316,10 @@ err := db.Create(&Account{Username: "bob", Nickname: "Bob", Age: 25}).Error
 // gormrepo
 err := repo.With(ctx, db).Create(&Account{Username: "bob", Nickname: "Bob", Age: 25})
 
+// gormrepo - Creates (pass the address of the slice, as db.Create(&accounts) does in GORM)
+accounts := []*Account{{Username: "chloe"}, {Username: "david"}}
+err := repo.With(ctx, db).Creates(&accounts)
+
 // gormrepo - CreateInBatches (a batch of records, batchSize records each SQL)
 err := repo.With(ctx, db).CreateInBatches(accounts, 100)
 ```
@@ -325,10 +329,12 @@ err := repo.With(ctx, db).CreateInBatches(accounts, 100)
 | Method            | Parameters               | Returns | Description                 |
 | ----------------- | ------------------------ | ------- | --------------------------- |
 | `Create`          | `one *MOD`               | `error` | Create new record           |
-| `Creates`         | `ones []*MOD`            | `error` | Batch create records        |
+| `Creates`         | `ones *[]*MOD`           | `error` | Batch create records        |
 | `CreateInBatches` | `ones []*MOD, batchSize` | `error` | Create in batches           |
 | `Save`            | `one *MOD`               | `error` | Insert/update record        |
-| `Saves`           | `ones []*MOD`            | `error` | Batch insert/update records |
+| `Saves`           | `ones *[]*MOD`           | `error` | Batch insert/update records |
+
+`Creates` and `Saves` take the address of the slice: with `clause.Returning{}` GORM rewrites the slice into the records the database returned, e.g. plus `OnConflict{DoNothing: true}` the slice shrinks to the inserted records. `CreateInBatches` takes the slice itself and keeps its length, so use `Creates` when the inserted records are wanted.
 
 #### 6. Update Records
 
@@ -429,35 +435,43 @@ err := repo.With(ctx, db).DeleteM(account, func(db *gorm.DB, cls *AccountColumns
 
 #### 8. Custom Operations
 
-When above methods do not fit, use `Invoke`:
+When above methods do not fit, use `Invoke`, which runs the whole GORM chain in the callback, and `Where`, which returns the `*gorm.DB` with the conditions on it. The `*gorm.DB` in these two comes with no `Model` set, so use `Modeled()` first (the same as `db.Model(&Account{})`) when the chain ends in `Update` / `Updates` / `Count` / `Pluck`, which need the table:
 
 ```go
 // Invoke - batch update
-err := repo.With(ctx, db).Invoke(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+err := repo.With(ctx, db).Modeled().Invoke(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
     return db.Where(cls.Age.Gte(18)).Update(cls.Nickname.Name(), "adult")
 })
 
 // Invoke - increment field
-err := repo.With(ctx, db).Invoke(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+err := repo.With(ctx, db).Modeled().Invoke(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
     return db.Where(cls.ID.Eq(1)).
         Update(cls.Age.Name(), gorm.Expr(cls.Age.Name()+" + ?", 1))
 })
 
 // Invoke - complex conditions
-err := repo.With(ctx, db).Invoke(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+err := repo.With(ctx, db).Modeled().Invoke(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
     return db.Where(cls.Age.Between(18, 60)).
         Where(cls.Nickname.IsNotNull()).
         Updates(map[string]any{
             cls.Nickname.Name(): "active",
         })
 })
+
+// Where - take the *gorm.DB with the conditions, then go on with native GORM
+var count int64
+err := repo.With(ctx, db).Modeled().Where(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+    return db.Where(cls.Age.Gte(18))
+}).Count(&count).Error
 ```
 
 #### Invoke Operations
 
-| Method   | Parameters                                | Returns | Description              |
-| -------- | ----------------------------------------- | ------- | ------------------------ |
-| `Invoke` | `run func(db *gorm.DB, cls CLS) *gorm.DB` | `error` | Execute custom operation |
+| Method    | Parameters                                  | Returns     | Description                                |
+| --------- | ------------------------------------------- | ----------- | ------------------------------------------ |
+| `Invoke`  | `run func(db *gorm.DB, cls CLS) *gorm.DB`   | `error`     | Execute custom operation                   |
+| `Where`   | `where func(db *gorm.DB, cls CLS) *gorm.DB` | `*gorm.DB`  | Add the conditions, return the native db   |
+| `Modeled` | (none)                                      | `*GormRepo` | New repo with `db.Model(new(MOD))` applied |
 
 #### 9. Upsert with Clauses
 
@@ -491,7 +505,7 @@ err := repo.With(ctx, db).Clause(func(cls *AccountColumns) clause.Expression {
         Columns:   []clause.Column{{Name: cls.Username.Name()}},
         DoUpdates: clause.AssignmentColumns([]string{cls.Nickname.Name()}),
     }
-}).Creates(accounts)
+}).Creates(&accounts)
 ```
 
 #### Clause Operations
@@ -585,9 +599,49 @@ Joining three tables is two joins of two tables: add each `Stmt()` via `Joins`, 
 | Function / Method                      | Parameters                                | Returns    | Description                           |
 | -------------------------------------- | ----------------------------------------- | ---------- | ------------------------------------- |
 | `LeftJoin` / `RightJoin` / `InnerJoin` | `repo1, repo2, func(cls1, cls2) []string` | `*Join`    | Join repo2 onto repo1                 |
+| `CrossJoin`                            | `repo1, repo2`                            | `*Join`    | CROSS JOIN, which has no ON condition |
 | `New`                                  | `repo1, joinType, repo2, onFunc`          | `*Join`    | Join with the given join type         |
 | `(*Join).Stmt`                         | (none)                                    | `string`   | JOIN statement to pass to `db.Joins`  |
 | `(*Join).Names[RES]`                   | `func(cls1, cls2, res) []string`          | `[]string` | Select columns to pass to `db.Select` |
+
+CROSS JOIN takes no ON condition in standard SQL (PostgreSQL rejects `CROSS JOIN ... ON`), so `CrossJoin` takes the two repos and nothing else:
+
+```go
+join := gormjoin.CrossJoin(studentRepo, scoreRepo)
+// join.Stmt() gives: CROSS JOIN scores
+```
+
+#### 13. GormWrap (Returns `*gorm.DB`)
+
+`repo.With(ctx, db)` / `repo.Repo(db)` give a `GormRepo`, whose methods return `(result, error)`. `repo.Wrap(ctx, db)` / `repo.Gorm(db)` give a `GormWrap`: the same params, and each method returns `*gorm.DB` as GORM does, so `RowsAffected` is at hand; its `First` / `Find` take the dest as GORM does. `GormWrap` keeps to the GORM methods, the extras (`FindO`, `FindC`, `Count`, `Exist`, `Pluck`, `Scan...`) are on `GormRepo`:
+
+```go
+res := repo.Wrap(ctx, db).Update(
+    func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+        return db.Where(cls.Age.Gte(18))
+    },
+    func(cls *AccountColumns) (string, any) {
+        return cls.Nickname.Kv("adult")
+    },
+)
+// res.Error, res.RowsAffected
+
+var accounts []*Account
+err := repo.Wrap(ctx, db).Find(func(db *gorm.DB, cls *AccountColumns) *gorm.DB {
+    return db.Where(cls.Age.Gte(18))
+}, &accounts).Error
+```
+
+| Method                      | On                      | Returns                   | Description                      |
+| --------------------------- | ----------------------- | ------------------------- | -------------------------------- |
+| `With(ctx, db)`             | `Repo`                  | `*GormRepo`               | Repo with the context and the db |
+| `Repo(db)`                  | `Repo`                  | `*GormRepo`               | Repo with the db                 |
+| `Wrap(ctx, db)`             | `Repo`                  | `*GormWrap`               | Wrap with the context and the db |
+| `Gorm(db)`                  | `Repo`                  | `*GormWrap`               | Wrap with the db                 |
+| `Gorm()` / `Repo()`         | `GormRepo` / `GormWrap` | `*GormWrap` / `*GormRepo` | Convert one into the next        |
+| `WithContext(ctx)`          | `GormRepo` / `GormWrap` | same type                 | Set the context                  |
+| `First(where, dest *MOD)`   | `GormWrap`              | `*gorm.DB`                | First matching record into dest  |
+| `Find(where, dest *[]*MOD)` | `GormWrap`              | `*gorm.DB`                | Matching records into dest       |
 
 ---
 
