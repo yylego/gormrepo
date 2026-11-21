@@ -174,6 +174,11 @@ accounts, count, err := repo.With(ctx, db).FindPageAndCount(
     &gormrepo.Pagination{Limit: 10, Offset: 0},
 )
 
+// gormrepo - NewPagination（用从 1 开始的页码和每页条数构造；每页 20 条的第 3 页是 Limit 20、Offset 40）
+page, err := gormrepo.NewPagination(3, 20)
+accounts, count, err := repo.With(ctx, db).FindPageAndCount(where, ordering, page)
+pageCount := page.PageCount(count) // 41 条记录是 3 页
+
 // gormrepo - FindC（分页写成自定义回调，同时返回不分页时的总数）
 accounts, count, err := repo.With(ctx, db).FindC(
     func(db *gorm.DB, cls *AccountColumns) *gorm.DB {

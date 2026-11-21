@@ -174,6 +174,11 @@ accounts, count, err := repo.With(ctx, db).FindPageAndCount(
     &gormrepo.Pagination{Limit: 10, Offset: 0},
 )
 
+// gormrepo - NewPagination (from a page, counted from 1, and a page size; page 3 at size 20 is Limit 20, Offset 40)
+page, err := gormrepo.NewPagination(3, 20)
+accounts, count, err := repo.With(ctx, db).FindPageAndCount(where, ordering, page)
+pageCount := page.PageCount(count) // 41 records make 3 pages
+
 // gormrepo - FindC (the page with a custom paging callback, and the count across pages)
 accounts, count, err := repo.With(ctx, db).FindC(
     func(db *gorm.DB, cls *AccountColumns) *gorm.DB {

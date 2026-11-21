@@ -82,6 +82,60 @@ func TestPagination_Scope(t *testing.T) {
 	require.Equal(t, "demo-2-username", accounts[0].Username) // Offset 1 skips demo-1 // Offset 1 跳过 demo-1
 }
 
+// TestNewPagination builds the pagination from a page and a page size, then reads that page
+// TestNewPagination 用页码和每页条数构造分页，再读出那一页
+func TestNewPagination(t *testing.T) {
+	db := tests.NewMemDB(t)
+	defer rese.F0(rese.P1(db.DB()).Close)
+	createDemoAccounts(t, db)
+
+	page := rese.P1(gormrepo.NewPagination(2, 1))
+	require.Equal(t, &gormrepo.Pagination{Limit: 1, Offset: 1}, page)
+
+	repo := gormrepo.NewRepo(gormclass.Use(&models.Account{}))
+	accounts, count, err := repo.With(t.Context(), db).FindPageAndCount(
+		func(db *gorm.DB, cls *models.AccountColumns) *gorm.DB {
+			return db
+		},
+		func(cls *models.AccountColumns) gormcnm.Ordering {
+			return cls.ID.Ob("asc")
+		},
+		page,
+	)
+	require.NoError(t, err)
+	require.Len(t, accounts, 1)
+	require.Equal(t, "demo-2-username", accounts[0].Username) // Page 2 at size 1 is the second account // 每页 1 条时第 2 页是第二个账号
+	require.Equal(t, int64(2), count)
+	require.Equal(t, int64(2), page.PageCount(count))
+}
+
+// TestNewPagination_PageZero checks page 0, which a client sends when it counts pages from 0, gets an error
+// TestNewPagination_PageZero 验证页码 0（客户端从 0 开始数页时会传）得到错误
+func TestNewPagination_PageZero(t *testing.T) {
+	page, err := gormrepo.NewPagination(0, 20)
+	require.Error(t, err)
+	require.Nil(t, page)
+}
+
+// TestNewPagination_SizeZero checks size 0, which a client sends when it leaves the size out, gets an error
+// TestNewPagination_SizeZero 验证每页条数 0（客户端没填时会传）得到错误
+func TestNewPagination_SizeZero(t *testing.T) {
+	page, err := gormrepo.NewPagination(1, 0)
+	require.Error(t, err)
+	require.Nil(t, page)
+}
+
+// TestPagination_PageCount checks the page count rounds up
+// TestPagination_PageCount 验证总页数向上取整
+func TestPagination_PageCount(t *testing.T) {
+	page := rese.P1(gormrepo.NewPagination(1, 20))
+	require.Equal(t, int64(0), page.PageCount(0))
+	require.Equal(t, int64(1), page.PageCount(1))
+	require.Equal(t, int64(1), page.PageCount(20))
+	require.Equal(t, int64(2), page.PageCount(21))
+	require.Equal(t, int64(3), page.PageCount(41))
+}
+
 // TestPagination_ScopeZeroLimit checks a Pagination with Limit left out gets an error from the scopes, the same as in FindPage
 // TestPagination_ScopeZeroLimit 验证忘了填 Limit 的 Pagination 走 scope 时也报错，跟 FindPage 一致
 func TestPagination_ScopeZeroLimit(t *testing.T) {
